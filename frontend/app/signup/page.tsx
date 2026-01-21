@@ -18,21 +18,18 @@ export default function SignupPage() {
       {/* LEFT: Hero Section */}
       <section
         className="relative flex-1 bg-cover bg-center"
-        style={{ backgroundImage: "url('/hero-background.webp')" }}
+        style={{ backgroundImage: "url('/cyclist.png')" }}
       >
         {/* Overlay */}
         <div className="absolute inset-0 bg-black/60" />
 
         {/* Text */}
         <div className="relative z-10 h-full flex items-center justify-center px-8 text-center">
-  <h1 className="text-white text-7xl font-bold leading-tight max-w-2xl">
-    Level Up <span className="italic">Your Life</span> <br />
-    Like It&apos;s a Game
-  </h1>
-</div>
-
-
-
+          <h1 className="text-white text-7xl font-bold leading-tight max-w-2xl">
+            Level Up <span className="italic">Your Life</span> <br />
+            Like It&apos;s a Game
+          </h1>
+        </div>
       </section>
 
       {/* RIGHT: Signup Section */}
