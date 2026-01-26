@@ -1,15 +1,15 @@
-'use client'
+"use client";
 
-import React from 'react'
-import Image from 'next/image'
-import { useRouter } from 'next/navigation'
+import React from "react";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { FaFacebookF, FaGoogle } from "react-icons/fa";
 
 export default function SignupPage() {
-  const router = useRouter()
+  const router = useRouter();
 
   return (
     <main className="flex h-screen w-full overflow-hidden relative">
-
       {/* Logo */}
       <div className="absolute top-6 left-6 z-20 text-white text-3xl font-bold">
         momentm
@@ -35,7 +35,6 @@ export default function SignupPage() {
       {/* RIGHT: Signup Section */}
       <section className="flex-1 bg-[#1c1f1e] flex items-center justify-center">
         <div className="w-[420px] bg-white rounded-2xl p-10 shadow-2xl">
-
           {/* Header */}
           <h2 className="text-3xl font-bold mb-2">Create an account</h2>
           <p className="text-sm text-gray-600 mb-6">
@@ -44,7 +43,6 @@ export default function SignupPage() {
 
           {/* Form */}
           <form className="space-y-3">
-
             {/* Name row */}
             <div className="flex gap-3">
               <input
@@ -81,14 +79,15 @@ export default function SignupPage() {
             <label className="flex items-start gap-2 text-xs text-gray-600 mt-2">
               <input type="checkbox" className="mt-1" />
               <span>
-                By signing up, you agree to our{' '}
+                By signing up, you agree to our{" "}
                 <span className="text-blue-600 cursor-pointer">
                   Terms of Service
-                </span>{' '}
-                and{' '}
+                </span>{" "}
+                and{" "}
                 <span className="text-blue-600 cursor-pointer">
                   Privacy Policy
-                </span>.
+                </span>
+                .
               </span>
             </label>
 
@@ -99,15 +98,14 @@ export default function SignupPage() {
             >
               Create a new account
             </button>
-
           </form>
 
           {/* Login */}
           <p className="text-sm text-gray-600 text-center mt-5">
-            Already have an account?{' '}
+            Already have an account?{" "}
             <button
               type="button"
-              onClick={() => router.push('/login')}
+              onClick={() => router.push("/login")}
               className="text-blue-600 font-medium"
             >
               Login
@@ -127,12 +125,7 @@ export default function SignupPage() {
               type="button"
               className="flex-1 flex items-center justify-center gap-2 border rounded-md py-2 text-sm hover:bg-gray-100"
             >
-              <Image
-                src="/google-logo.png"
-                alt="Google"
-                width={18}
-                height={18}
-              />
+              <FaGoogle />
               Google
             </button>
 
@@ -140,19 +133,12 @@ export default function SignupPage() {
               type="button"
               className="flex-1 flex items-center justify-center gap-2 border rounded-md py-2 text-sm hover:bg-gray-100"
             >
-              <Image
-                src="/facebook-logo.png"
-                alt="Facebook"
-                width={18}
-                height={18}
-              />
+              <FaFacebookF />
               Facebook
             </button>
           </div>
-
         </div>
       </section>
-
     </main>
-  )
+  );
 }
