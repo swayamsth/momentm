@@ -1,9 +1,11 @@
+import NavBar from "@/components/NavBar";
 import StartTransformationBtn from "@/components/StartTransformationBtn";
 import { MdOutlineSouthEast } from "react-icons/md";
 
 const Home = () => {
   return (
     <section className="bg-[url('/hero-background.webp')] min-h-screen w-full bg-cover bg-center relative text-white overflow-hidden">
+      <NavBar />
       <div className="grid place-content-center gap-y-3 p-8 w-full h-full top-0 absolute text-center">
         <h1 className="font-satoshi text-2xl font-normal leading-tight md:text-4xl xl:text-5xl 2xl:text-6xl mx-auto">
           The <span className="font-medium">Fitness App</span> That Feels Like
