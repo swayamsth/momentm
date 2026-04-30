@@ -1,130 +1,149 @@
-"use client";
+'use client'
 
-import React from "react";
-import { useRouter } from "next/navigation";
-import { FaGoogle, FaFacebookF } from "react-icons/fa";
+import React from 'react'
+import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 
 export default function SignupPage() {
-  const router = useRouter();
+  const router = useRouter()
 
   return (
-    <main className="flex min-h-screen w-full flex-col lg:flex-row bg-[#1c1f1e] overflow-x-hidden">
-      
-      {/* MOBILE HEADER: Logo and Heading (Visible ONLY on mobile/tablet) */}
-      <div className="lg:hidden w-full p-6 text-center space-y-4">
-        <div className="text-white text-3xl font-bold tracking-tight">
-          momentm
-        </div>
-        <h1 className="text-white text-3xl font-bold font-satoshi leading-tight px-4">
-          Level Up <span className="italic font-medium text-gray-300">Your Life</span> <br />
-          Like It&apos;s a Game
-        </h1>
+    <main className="flex min-h-screen w-full flex-col lg:flex-row overflow-hidden relative">
+
+      {/* Logo */}
+      <div className="absolute top-6 left-6 z-20 text-white text-3xl font-bold">
+        momentm
       </div>
 
       {/* DESKTOP LEFT: Hero Section (Visible ONLY on Desktop) */}
       <section
-        className="relative hidden lg:flex flex-[1.2] bg-cover bg-center"
+        className="relative hidden lg:flex flex-1 bg-cover bg-center"
         style={{ backgroundImage: "url('/cyclist.png')" }}
       >
-        <div className="absolute top-8 left-8 z-20 text-white text-4xl font-bold tracking-tight">
-          momentm
-        </div>
-        <div className="absolute inset-0 bg-black/50" />
-        <div className="relative z-10 h-full flex items-center justify-center px-16 text-center">
-          <h1 className="text-white text-7xl font-bold font-satoshi leading-[1.1] max-w-2xl">
-            Level Up <span className="italic font-medium">Your Life</span> <br />
+        {/* Overlay */}
+        <div className="absolute inset-0 bg-black/60" />
+
+        {/* Hero Text */}
+        <div className="relative z-10 h-full flex items-center justify-center px-8 text-center">
+          <h1 className="text-white text-4xl sm:text-5xl lg:text-6xl font-bold font-satoshi leading-tight max-w-2xl">
+            Level Up <span className="italic">Your Life</span> <br />
             Like It&apos;s a Game
           </h1>
         </div>
       </section>
 
-      {/* RIGHT: Signup Section (Always visible) */}
-      <section className="flex-1 flex items-start lg:items-center justify-center p-4 sm:p-12">
-        <div className="w-full max-w-[440px] bg-white rounded-3xl p-8 sm:p-10 shadow-2xl">
-          
-          <header className="mb-6 sm:mb-8 text-center lg:text-left">
-            <h2 className="text-2xl sm:text-3xl font-bold font-rethink-sans text-black mb-2">
-              Create an account
-            </h2>
-            <p className="text-sm text-gray-500 font-rethink-sans">
-              Start your personalized, AI-powered fitness journey
-            </p>
-          </header>
+      {/* RIGHT: Signup Section */}
+      <section className="flex-1 bg-[#1c1f1e] flex items-center justify-center">
+        <div className="w-full max-w-md bg-white rounded-2xl p-8 sm:p-10 shadow-2xl">
 
-          <form className="space-y-3 sm:space-y-4" onSubmit={(e) => e.preventDefault()}>
+          {/* Header */}
+          <h2 className="text-2xl sm:text-3xl font-bold font-rethink-sans mb-2">
+            Create an account
+          </h2>
+          <p className="text-sm sm:text-base text-gray-600 font-rethink-sans mb-6">
+            Start your personalized, AI-powered fitness journey
+          </p>
+
+          {/* Form */}
+          <form className="space-y-3">
+
+            {/* Name row */}
             <div className="flex flex-col sm:flex-row gap-3">
               <input
                 type="text"
                 placeholder="First Name"
-                className="flex-1 rounded-xl border border-gray-200 px-4 py-3 text-sm font-rethink-sans text-black focus:ring-2 focus:ring-black/5 outline-none"
+                className="flex-1 rounded-md border px-3 py-3 text-sm font-rethink-sans"
               />
               <input
                 type="text"
                 placeholder="Last Name"
-                className="flex-1 rounded-xl border border-gray-200 px-4 py-3 text-sm font-rethink-sans text-black focus:ring-2 focus:ring-black/5 outline-none"
+                className="flex-1 rounded-md border px-3 py-3 text-sm font-rethink-sans"
               />
             </div>
 
             <input
               type="email"
-              placeholder="Email Address"
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm font-rethink-sans text-black focus:ring-2 focus:ring-black/5 outline-none"
+              placeholder="hello123@gmail.com"
+              className="w-full rounded-md border px-3 py-3 text-sm font-rethink-sans"
             />
 
             <input
               type="password"
-              placeholder="Password"
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm font-rethink-sans text-black focus:ring-2 focus:ring-black/5 outline-none"
+              placeholder="Enter your password"
+              className="w-full rounded-md border px-3 py-3 text-sm font-rethink-sans"
             />
 
             <input
               type="password"
-              placeholder="Confirm Password"
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm font-rethink-sans text-black focus:ring-2 focus:ring-black/5 outline-none"
+              placeholder="Confirm password"
+              className="w-full rounded-md border px-3 py-3 text-sm font-rethink-sans"
             />
 
-            <label className="flex items-start gap-3 text-xs text-gray-500 py-1 cursor-pointer font-rethink-sans">
-              <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-black shrink-0" />
+            {/* Terms */}
+            <label className="flex items-start gap-2 text-xs text-gray-600 mt-2 font-rethink-sans">
+              <input type="checkbox" className="mt-1" />
               <span>
-                Agree to <button type="button" className="text-blue-600 font-semibold underline">Terms</button> & <button type="button" className="text-blue-600 font-semibold underline">Privacy</button>
+                By signing up, you agree to our{' '}
+                <span className="text-blue-600 cursor-pointer">
+                  Terms of Service
+                </span>{' '}
+                and{' '}
+                <span className="text-blue-600 cursor-pointer">
+                  Privacy Policy
+                </span>.
               </span>
             </label>
 
             <button
               type="submit"
-              className="w-full bg-black text-white py-3.5 rounded-xl font-bold hover:bg-gray-800 transition-all active:scale-[0.98] font-rethink-sans shadow-lg shadow-black/10 mt-2"
+              className="mt-4 w-full bg-black text-white py-3 rounded-lg font-medium hover:bg-black/90 transition font-rethink-sans"
             >
               Sign Up
             </button>
+
           </form>
 
-          <p className="text-sm text-gray-600 text-center mt-6 font-rethink-sans">
-            Already have an account?{" "}
+          {/* Login */}
+          <p className="text-sm sm:text-base text-gray-600 text-center mt-5 font-rethink-sans">
+            Already have an account?{' '}
             <button
               type="button"
-              onClick={() => router.push("/login")}
-              className="text-blue-600 font-bold hover:underline"
+              onClick={() => router.push('/login')}
+              className="text-blue-600 font-medium"
             >
               Login
             </button>
           </p>
 
-          <div className="flex items-center gap-4 my-6">
-            <div className="flex-1 h-px bg-gray-100" />
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest font-rethink-sans">OR</span>
-            <div className="flex-1 h-px bg-gray-100" />
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-6 text-xs text-gray-400 font-rethink-sans">
+            <div className="flex-1 h-px bg-gray-300" />
+            or register with
+            <div className="flex-1 h-px bg-gray-300" />
           </div>
 
+          {/* Social Buttons */}
           <div className="flex flex-col sm:flex-row gap-3">
-            <button className="flex-1 flex items-center justify-center gap-3 border border-gray-200 rounded-xl py-3 text-sm font-bold text-black hover:bg-gray-50 transition-colors font-rethink-sans">
-              <FaGoogle className="text-[#DB4437]" /> Google
+            <button
+              type="button"
+              className="flex-1 flex items-center justify-center gap-2 border rounded-md py-2 text-sm hover:bg-gray-100 font-rethink-sans"
+            >
+              <Image src="/google-logo.png" alt="Google" width={18} height={18} />
+              Google
             </button>
-            <button className="flex-1 flex items-center justify-center gap-3 border border-gray-200 rounded-xl py-3 text-sm font-bold text-black hover:bg-gray-50 transition-colors font-rethink-sans">
-              <FaFacebookF className="text-[#4267B2]" /> Facebook
+
+            <button
+              type="button"
+              className="flex-1 flex items-center justify-center gap-2 border rounded-md py-2 text-sm hover:bg-gray-100 font-rethink-sans"
+            >
+              <Image src="/facebook-logo.png" alt="Facebook" width={18} height={18} />
+              Facebook
             </button>
           </div>
+
         </div>
       </section>
+
     </main>
-  );
+  )
 }
