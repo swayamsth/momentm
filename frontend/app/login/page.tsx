@@ -3,14 +3,17 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { FaGoogle, FaFacebookF } from "react-icons/fa";
+import NavBar from "@/components/NavBar";
 
 export default function LoginPage() {
   const router = useRouter();
 
   return (
-    <main className="flex min-h-screen w-full flex-col lg:flex-row bg-[#1c1f1e] overflow-x-hidden font-rethink-sans">
-      
-      {/* MOBILE HEADER */}
+    <>
+      <NavBar />
+      <main className="flex min-h-screen w-full flex-col lg:flex-row bg-[#1c1f1e] overflow-x-hidden font-rethink-sans">
+        
+        {/* MOBILE HEADER */}
       <div className="lg:hidden w-full p-6 text-center space-y-4">
         <div className="text-white text-3xl font-bold tracking-tight">
           momentm
@@ -112,5 +115,6 @@ export default function LoginPage() {
         </div>
       </section>
     </main>
+    </>
   );
 }

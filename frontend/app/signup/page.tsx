@@ -3,14 +3,17 @@
 import React from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
+import NavBar from '@/components/NavBar'
 
 export default function SignupPage() {
   const router = useRouter()
 
   return (
-    <main className="flex min-h-screen w-full flex-col lg:flex-row overflow-hidden relative">
+    <>
+      <NavBar />
+      <main className="flex min-h-screen w-full flex-col lg:flex-row overflow-hidden relative">
 
-      {/* Logo */}
+        {/* Logo */}
       <div className="absolute top-6 left-6 z-20 text-white text-3xl font-bold">
         momentm
       </div>
@@ -145,5 +148,6 @@ export default function SignupPage() {
       </section>
 
     </main>
+    </>
   )
 }

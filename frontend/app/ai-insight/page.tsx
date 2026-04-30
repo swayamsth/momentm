@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Navbar from "@/components/NavBar";
+import NavBar from "@/components/NavBar";
 import Chat from "./Chat";
 
 type AIResponse = {
@@ -20,7 +20,7 @@ export default function AIInsightPage() {
 
   return (
     <div className="h-screen bg-zinc-950 flex flex-col overflow-hidden">
-      <Navbar />
+      <NavBar />
       <div className="flex flex-1 min-h-0 relative">
         {/* Fixed slim sidebar rail */}
         <aside className="w-14 shrink-0 border-r border-zinc-800 bg-secondary flex flex-col items-center py-4 z-30 relative">
