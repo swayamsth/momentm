@@ -1,14 +1,10 @@
-# Momentm — Merged Codebase
-
-This is the merged codebase combining:
-- **momentm-v1** — Next.js 15 App Router framework (base)
-- **momentm-main** — Lovable AI-generated UI + Django backend logic
+# Momentm — AI Fitness App
 
 ## Structure
 
 ```
 momentm/
-├── frontend/          # Next.js 15 App Router app
+├── frontend/          # Next.js 16 App Router app
 │   ├── app/           # Pages (App Router)
 │   │   ├── page.tsx              # Auth/Login page
 │   │   ├── dashboard/page.tsx    # Dashboard
