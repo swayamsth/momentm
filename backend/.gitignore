@@ -1,0 +1,35 @@
+*.pyc
+
+# Virtual environment
+venv/
+.env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Logs
+*.log
+
+# OS / editor junk
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Testing / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Misc
+*.env
+.env.local
+.env.*.local
