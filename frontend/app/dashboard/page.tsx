@@ -332,31 +332,31 @@ function Dashboard() {
           </Card>
 
           <Card className="glass border-0 p-6">
-            <h3 className="font-semibold mb-1">Consistency score</h3>
-            <p className="text-xs text-muted-foreground mb-4">This week</p>
-            <div className="h-44 flex items-center justify-center">
-              <ResponsiveContainer>
-                <RadialBarChart innerRadius="60%" outerRadius="100%" data={[{ name: "score", value: 84, fill: "oklch(0.6 0.22 255)" }]} startAngle={90} endAngle={-270}>
-                  <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                  <RadialBar dataKey="value" cornerRadius={20} background={{ fill: "oklch(0.94 0.01 250)" }} />
-                </RadialBarChart>
-              </ResponsiveContainer>
+          <h3 className="font-semibold mb-1">Consistency score</h3>
+          <p className="text-xs text-muted-foreground mb-4">This week</p>
+          <div className="relative h-44">
+            <ResponsiveContainer>
+              <RadialBarChart innerRadius="72%" outerRadius="100%" data={[{ name: "score", value: 84, fill: "oklch(0.6 0.22 255)" }]} startAngle={90} endAngle={-270}>
+                <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+                <RadialBar dataKey="value" cornerRadius={20} background={{ fill: "oklch(0.94 0.01 140)" }} />
+              </RadialBarChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <div className="text-4xl font-semibold tracking-tight tabular-nums">84<span className="text-lg text-muted-foreground font-normal">%</span></div>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground mt-1">Excellent</div>
             </div>
-            <div className="text-center -mt-32 mb-12">
-              <div className="text-4xl font-semibold">84<span className="text-lg text-muted-foreground">%</span></div>
-              <div className="text-xs text-muted-foreground">Excellent</div>
-            </div>
-            <div className="flex justify-between gap-1">
-              {consistency.map((c) => (
-                <div key={c.day} className="flex-1 text-center">
-                  <div className="h-12 bg-muted rounded relative overflow-hidden">
-                    <div className="absolute bottom-0 inset-x-0 gradient-bg rounded" style={{ height: `${c.v}%` }} />
-                  </div>
-                  <div className="text-[10px] text-muted-foreground mt-1">{c.day[0]}</div>
+          </div>
+          <div className="flex justify-between gap-1 mt-4">
+            {consistency.map((c) => (
+              <div key={c.day} className="flex-1 text-center">
+                <div className="h-12 bg-muted rounded relative overflow-hidden">
+                  <div className="absolute bottom-0 inset-x-0 gradient-bg rounded" style={{ height: `${c.v}%` }} />
                 </div>
-              ))}
-            </div>
-          </Card>
+                <div className="text-[10px] text-muted-foreground mt-1">{c.day[0]}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
         </div>
 
         {/* Recent Activities */}
