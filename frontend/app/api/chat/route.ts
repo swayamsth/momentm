@@ -98,7 +98,7 @@ Bent Over Rows: 3 sets of 8-10 reps
       max_tokens: 3000,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: lastUserMessage },
+        ...messages, // Include full conversation history
       ],
     });
 
