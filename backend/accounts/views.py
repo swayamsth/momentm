@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import SignupSerializer
-from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment
+from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog
 
 
 def get_tokens_for_user(user):
@@ -328,3 +328,47 @@ def like_comment_view(request, comment_id):
         return Response({'likes': comment.likes.count(), 'liked': liked})
     except Comment.DoesNotExist:
         return Response({'error': 'Comment not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def log_activity_view(request):
+    activity = request.data.get('activity', '').strip()
+    duration = request.data.get('duration', 0)
+    steps = request.data.get('steps', 0)
+    calories = request.data.get('calories', 0)
+
+    if not activity:
+        return Response({'error': 'Activity name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    log = ActivityLog.objects.create(
+        user=request.user,
+        activity=activity,
+        duration=int(duration),
+        steps=int(steps),
+        calories=int(calories),
+    )
+
+    return Response({
+        'id': log.id,
+        'activity': log.activity,
+        'duration': log.duration,
+        'steps': log.steps,
+        'calories': log.calories,
+        'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
+    }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_activities_view(request):
+    logs = ActivityLog.objects.filter(user=request.user)[:30]
+    data = [{
+        'id': log.id,
+        'activity': log.activity,
+        'duration': log.duration,
+        'steps': log.steps,
+        'calories': log.calories,
+        'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
+    } for log in logs]
+    return Response(data)
