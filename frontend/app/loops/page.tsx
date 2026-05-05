@@ -7,23 +7,14 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import {
   Heart, MessageCircle, Repeat2, Users, Target, Search,
-  Plus, Loader2, Send, X, Lock, Globe, Pencil, Check
+  Plus, Loader2, Send, X, Lock, Globe, Pencil, Check, Trash2, UserCheck, UserX
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
-// ─── Static Data ─────────────────────────────────────────────────────────────
+// ─── Static Data ──────────────────────────────────────────────────────────────
 
 const PRESET_TAGS = ["Running", "Mind", "Strength", "Nutrition", "Cycling", "Recovery", "Sleep", "Other"];
 const ALL_TAGS = ["All", ...PRESET_TAGS];
-
-const initialLoops = [
-  { id: 1, name: "5AM Run Club", members: 1240, tag: "Running", desc: "Early-morning runners pushing each other.", color: "oklch(0.6 0.22 255)", isPrivate: false, createdByMe: false },
-  { id: 2, name: "Mindful Mornings", members: 820, tag: "Mind", desc: "10-minute meditation streaks together.", color: "oklch(0.55 0.18 300)", isPrivate: false, createdByMe: false },
-  { id: 3, name: "Strength 200", members: 450, tag: "Strength", desc: "200 reps a day — bodyweight or weighted.", color: "oklch(0.62 0.22 25)", isPrivate: true, createdByMe: false },
-  { id: 4, name: "Plant-Based Pros", members: 690, tag: "Nutrition", desc: "Daily plant-forward meal logs.", color: "oklch(0.7 0.16 155)", isPrivate: false, createdByMe: false },
-  { id: 5, name: "Cycle 100", members: 320, tag: "Cycling", desc: "100km a week, every week.", color: "oklch(0.78 0.16 75)", isPrivate: false, createdByMe: false },
-  { id: 6, name: "Sleep Stack", members: 510, tag: "Recovery", desc: "Lights out by 10:30pm.", color: "oklch(0.5 0.15 280)", isPrivate: true, createdByMe: false },
-];
 
 const TAG_COLORS: Record<string, string> = {
   Running: "oklch(0.6 0.22 255)",
@@ -54,6 +45,16 @@ interface Loop {
   color: string;
   isPrivate: boolean;
   createdByMe: boolean;
+  joinedAt?: string;
+}
+
+interface JoinRequest {
+  id: number;
+  loopId: number;
+  loopName: string;
+  user: string;
+  handle: string;
+  requestedAt: string;
 }
 
 interface Comment {
@@ -78,6 +79,44 @@ interface Post {
   loop?: string;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getMemberSince(dateStr: string) {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+// ─── Delete Confirmation Modal ────────────────────────────────────────────────
+
+function DeleteLoopModal({ loop, onClose, onConfirm }: {
+  loop: Loop;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-foreground/20 backdrop-blur-sm" onClick={onClose} />
+      <Card className="glass-strong border-0 w-full max-w-sm p-6 relative z-10 space-y-4 text-center">
+        <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto">
+          <Trash2 className="w-6 h-6 text-red-500" />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold">Delete &quot;{loop.name}&quot;?</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            This will permanently delete the loop and remove all members. This cannot be undone.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-1 bg-red-500 hover:bg-red-600 text-white border-0" onClick={onConfirm}>
+            Delete Loop
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Edit Loop Modal ──────────────────────────────────────────────────────────
 
 function EditLoopModal({ loop, onClose, onSave }: {
@@ -89,21 +128,19 @@ function EditLoopModal({ loop, onClose, onSave }: {
   const [desc, setDesc] = useState(loop.desc);
   const [tag, setTag] = useState(loop.tag);
   const [isPrivate, setIsPrivate] = useState(loop.isPrivate);
-  const [customTag, setCustomTag] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSave = async () => {
     setLoading(true);
-    const finalTag = tag === "Custom" ? customTag || "Other" : tag;
     try {
       const token = localStorage.getItem("access_token");
       await fetch(`http://127.0.0.1:8000/api/loops/${loop.id}/edit/`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name, description: desc, tag: finalTag, is_private: isPrivate }),
+        body: JSON.stringify({ name, description: desc, tag, is_private: isPrivate }),
       });
-    } catch { /* backend not ready yet, still update locally */ }
-    onSave({ name, desc, tag: finalTag, isPrivate });
+    } catch { /* backend not ready yet */ }
+    onSave({ name, desc, tag, isPrivate });
     setLoading(false);
     onClose();
   };
@@ -121,21 +158,15 @@ function EditLoopModal({ loop, onClose, onSave }: {
         <div className="space-y-3">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Loop Name</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+            <input value={name} onChange={(e) => setName(e.target.value)}
               className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-              maxLength={50}
-            />
+              maxLength={50} />
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
-            <textarea
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
+            <textarea value={desc} onChange={(e) => setDesc(e.target.value)}
               className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none resize-none min-h-[80px] focus:ring-2 focus:ring-primary/30"
-              maxLength={200}
-            />
+              maxLength={200} />
             <p className="text-xs text-muted-foreground text-right mt-1">{desc.length}/200</p>
           </div>
           <div>
@@ -147,20 +178,7 @@ function EditLoopModal({ loop, onClose, onSave }: {
                   {t}
                 </button>
               ))}
-              <button onClick={() => setTag("Custom")}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-all border ${tag === "Custom" ? "gradient-bg text-primary-foreground border-transparent" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-                + Custom
-              </button>
             </div>
-            {tag === "Custom" && (
-              <input
-                value={customTag}
-                onChange={(e) => setCustomTag(e.target.value)}
-                placeholder="Type your category..."
-                className="mt-2 w-full bg-muted rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-                maxLength={30}
-              />
-            )}
           </div>
           <div className="flex items-center justify-between glass rounded-xl px-4 py-3">
             <div className="flex items-center gap-2">
@@ -197,7 +215,6 @@ function CreateLoopModal({ onClose, onCreate }: {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [tag, setTag] = useState("Running");
-  const [customTag, setCustomTag] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -205,28 +222,26 @@ function CreateLoopModal({ onClose, onCreate }: {
 
   const handleCreate = async () => {
     if (!name.trim()) { setError("Loop name is required."); return; }
-    if (tag === "Custom" && !customTag.trim()) { setError("Please enter a custom category."); return; }
     setLoading(true);
     setError("");
-    const finalTag = tag === "Custom" ? customTag.trim() : tag;
     const newLoop: Loop = {
       id: Date.now(),
       name: name.trim(),
       desc: desc.trim() || "No description yet.",
-      tag: finalTag,
-      color: TAG_COLORS[finalTag] || TAG_COLORS["Other"],
+      tag,
+      color: TAG_COLORS[tag] || TAG_COLORS["Other"],
       isPrivate,
       members: 1,
       createdByMe: true,
+      joinedAt: new Date().toISOString(),
     };
     try {
       const token = localStorage.getItem("access_token");
-      const res = await fetch("http://127.0.0.1:8000/api/loops/create/", {
+      await fetch("http://127.0.0.1:8000/api/loops/create/", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: newLoop.name, description: newLoop.desc, tag: finalTag, is_private: isPrivate }),
+        body: JSON.stringify({ name: newLoop.name, description: newLoop.desc, tag, is_private: isPrivate }),
       });
-      if (!res.ok) { /* backend not ready, still create locally */ }
     } catch { /* backend not ready yet */ }
     onCreate(newLoop);
     setSuccess(true);
@@ -240,7 +255,7 @@ function CreateLoopModal({ onClose, onCreate }: {
       <Card className="glass-strong border-0 w-full max-w-md p-6 relative z-10 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Create a Loop</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -257,23 +272,17 @@ function CreateLoopModal({ onClose, onCreate }: {
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Loop Name *</label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                <input value={name} onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. 6AM Grind Squad"
                   className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-                  maxLength={50}
-                />
+                  maxLength={50} />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
-                <textarea
-                  value={desc}
-                  onChange={(e) => setDesc(e.target.value)}
+                <textarea value={desc} onChange={(e) => setDesc(e.target.value)}
                   placeholder="What's this loop about?"
                   className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none resize-none min-h-[80px] focus:ring-2 focus:ring-primary/30"
-                  maxLength={200}
-                />
+                  maxLength={200} />
                 <p className="text-xs text-muted-foreground text-right mt-1">{desc.length}/200</p>
               </div>
               <div>
@@ -285,20 +294,7 @@ function CreateLoopModal({ onClose, onCreate }: {
                       {t}
                     </button>
                   ))}
-                  <button onClick={() => setTag("Custom")}
-                    className={`px-3 py-1 rounded-full text-xs font-medium transition-all border ${tag === "Custom" ? "gradient-bg text-primary-foreground border-transparent" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-                    + Custom
-                  </button>
                 </div>
-                {tag === "Custom" && (
-                  <input
-                    value={customTag}
-                    onChange={(e) => setCustomTag(e.target.value)}
-                    placeholder="Type your category..."
-                    className="mt-2 w-full bg-muted rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-                    maxLength={30}
-                  />
-                )}
               </div>
               <div className="flex items-center justify-between glass rounded-xl px-4 py-3">
                 <div className="flex items-center gap-2">
@@ -331,15 +327,19 @@ function CreateLoopModal({ onClose, onCreate }: {
 
 // ─── Loop Card ────────────────────────────────────────────────────────────────
 
-function LoopCard({ loop, joined, onJoinLeave, onEdit }: {
+function LoopCard({ loop, joined, joinedAt, onJoinLeave, onEdit, onDelete, pendingRequest }: {
   loop: Loop;
   joined: boolean;
+  joinedAt?: string;
   onJoinLeave: (id: number) => void;
   onEdit?: (loop: Loop) => void;
+  onDelete?: (loop: Loop) => void;
+  pendingRequest?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
 
   const handleClick = async () => {
+    if (pendingRequest) return;
     setLoading(true);
     try {
       const token = localStorage.getItem("access_token");
@@ -347,7 +347,7 @@ function LoopCard({ loop, joined, onJoinLeave, onEdit }: {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-    } catch { /* backend not ready, still toggle locally */ }
+    } catch { /* backend not ready, toggle locally */ }
     onJoinLeave(loop.id);
     setLoading(false);
   };
@@ -359,7 +359,7 @@ function LoopCard({ loop, joined, onJoinLeave, onEdit }: {
           style={{ background: `color-mix(in oklab, ${loop.color} 18%, transparent)` }}>
           <Users className="w-5 h-5" style={{ color: loop.color }} />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {loop.isPrivate && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
           <Badge variant="secondary" className="text-xs">{loop.tag}</Badge>
           {loop.createdByMe && onEdit && (
@@ -368,19 +368,46 @@ function LoopCard({ loop, joined, onJoinLeave, onEdit }: {
               <Pencil className="w-3.5 h-3.5" />
             </button>
           )}
+          {loop.createdByMe && onDelete && (
+            <button onClick={() => onDelete(loop)}
+              className="text-muted-foreground hover:text-red-500 transition-colors p-1 rounded-lg hover:bg-red-50">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
+
       <h3 className="font-semibold">{loop.name}</h3>
-      <p className="text-sm text-muted-foreground mt-1 mb-4 flex-1">{loop.desc}</p>
+      <p className="text-sm text-muted-foreground mt-1 mb-3 flex-1">{loop.desc}</p>
+
+      {joined && joinedAt && (
+        <p className="text-xs text-primary/70 font-medium mb-3">
+          Member since {getMemberSince(joinedAt)}
+        </p>
+      )}
+
+      {pendingRequest && (
+        <p className="text-xs text-amber-500 font-medium mb-3">⏳ Request pending approval</p>
+      )}
+
       <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">
-          {(joined ? loop.members : loop.members).toLocaleString()} members
-        </span>
-        <Button size="sm" onClick={handleClick} disabled={loading}
-          variant={joined ? "outline" : "default"}
-          className={joined ? "border-red-300 text-red-500 hover:bg-red-50 hover:text-red-600" : "gradient-bg text-primary-foreground border-0"}>
-          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : joined ? "Leave" : "Join"}
-        </Button>
+        <span className="text-xs text-muted-foreground">{loop.members.toLocaleString()} members</span>
+        {!loop.createdByMe && (
+          <Button size="sm" onClick={handleClick} disabled={loading || pendingRequest}
+            variant={joined ? "outline" : "default"}
+            className={
+              joined
+                ? "border-red-300 text-red-500 hover:bg-red-50 hover:text-red-600"
+                : pendingRequest
+                ? "opacity-60 cursor-not-allowed border-border text-muted-foreground"
+                : "gradient-bg text-primary-foreground border-0"
+            }>
+            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : joined ? "Leave" : pendingRequest ? "Pending" : "Join"}
+          </Button>
+        )}
+        {loop.createdByMe && (
+          <Badge className="text-xs gradient-bg text-primary-foreground border-0">Admin</Badge>
+        )}
       </div>
     </Card>
   );
@@ -482,9 +509,26 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+const initialLoops: Loop[] = [
+  { id: 1, name: "5AM Run Club", members: 1240, tag: "Running", desc: "Early-morning runners pushing each other.", color: TAG_COLORS.Running, isPrivate: false, createdByMe: false },
+  { id: 2, name: "Mindful Mornings", members: 820, tag: "Mind", desc: "10-minute meditation streaks together.", color: TAG_COLORS.Mind, isPrivate: false, createdByMe: false },
+  { id: 3, name: "Strength 200", members: 450, tag: "Strength", desc: "200 reps a day — bodyweight or weighted.", color: TAG_COLORS.Strength, isPrivate: true, createdByMe: false },
+  { id: 4, name: "Plant-Based Pros", members: 690, tag: "Nutrition", desc: "Daily plant-forward meal logs.", color: TAG_COLORS.Nutrition, isPrivate: false, createdByMe: false },
+  { id: 5, name: "Cycle 100", members: 320, tag: "Cycling", desc: "100km a week, every week.", color: TAG_COLORS.Cycling, isPrivate: false, createdByMe: false },
+  { id: 6, name: "Sleep Stack", members: 510, tag: "Sleep", desc: "Lights out by 10:30pm.", color: TAG_COLORS.Sleep, isPrivate: true, createdByMe: false },
+];
+
+// Dummy requests for testing the UI
+const dummyRequests: JoinRequest[] = [
+  { id: 1, loopId: 3, loopName: "Strength 200", user: "Alex Kim", handle: "alexkim", requestedAt: "2 hours ago" },
+  { id: 2, loopId: 6, loopName: "Sleep Stack", user: "Jordan Lee", handle: "jordanlee", requestedAt: "5 hours ago" },
+];
+
 export default function LoopsPage() {
   const [loops, setLoops] = useState<Loop[]>(initialLoops);
-  const [joinedIds, setJoinedIds] = useState<number[]>([]);
+  const [joinedMap, setJoinedMap] = useState<Record<number, string>>({});
+  const [pendingIds, setPendingIds] = useState<number[]>([]);
+  const [requests, setRequests] = useState<JoinRequest[]>(dummyRequests);
   const [posts, setPosts] = useState<Post[]>([]);
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
@@ -492,6 +536,7 @@ export default function LoopsPage() {
   const [postError, setPostError] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingLoop, setEditingLoop] = useState<Loop | null>(null);
+  const [deletingLoop, setDeletingLoop] = useState<Loop | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTag, setActiveTag] = useState("All");
   const [feedFilter, setFeedFilter] = useState<"all" | "myloops">("all");
@@ -514,11 +559,8 @@ export default function LoopsPage() {
       });
       const data = await res.json();
       setPosts(data);
-    } catch {
-      // backend not ready yet, show empty state
-    } finally {
-      setLoadingPosts(false);
-    }
+    } catch { /* backend not ready */ }
+    finally { setLoadingPosts(false); }
   };
 
   useEffect(() => {
@@ -528,24 +570,72 @@ export default function LoopsPage() {
   }, []);
 
   const handleJoinLeave = (id: number) => {
-    setJoinedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-    setLoops((prev) =>
-      prev.map((l) =>
-        l.id === id ? { ...l, members: joinedIds.includes(id) ? l.members - 1 : l.members + 1 } : l
-      )
-    );
+    const loop = loops.find((l) => l.id === id);
+    if (!loop) return;
+
+    if (joinedMap[id]) {
+      // Leave
+      const updated = { ...joinedMap };
+      delete updated[id];
+      setJoinedMap(updated);
+      setLoops((prev) => prev.map((l) => l.id === id ? { ...l, members: l.members - 1 } : l));
+    } else if (loop.isPrivate) {
+      // Send join request for private loops
+      setPendingIds((prev) => [...prev, id]);
+    } else {
+      // Join public loop immediately
+      setJoinedMap((prev) => ({ ...prev, [id]: new Date().toISOString() }));
+      setLoops((prev) => prev.map((l) => l.id === id ? { ...l, members: l.members + 1 } : l));
+    }
   };
 
   const handleLoopCreated = (newLoop: Loop) => {
     setLoops((prev) => [newLoop, ...prev]);
-    setJoinedIds((prev) => [...prev, newLoop.id]);
+    setJoinedMap((prev) => ({ ...prev, [newLoop.id]: newLoop.joinedAt || new Date().toISOString() }));
   };
 
   const handleLoopEdited = (updated: Partial<Loop>) => {
     if (!editingLoop) return;
     setLoops((prev) => prev.map((l) => l.id === editingLoop.id ? { ...l, ...updated } : l));
+  };
+
+  const handleLoopDeleted = async () => {
+    if (!deletingLoop) return;
+    try {
+      const token = localStorage.getItem("access_token");
+      await fetch(`http://127.0.0.1:8000/api/loops/${deletingLoop.id}/delete/`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch { /* backend not ready */ }
+    setLoops((prev) => prev.filter((l) => l.id !== deletingLoop.id));
+    const updated = { ...joinedMap };
+    delete updated[deletingLoop.id];
+    setJoinedMap(updated);
+    setDeletingLoop(null);
+  };
+
+  const handleApproveRequest = async (req: JoinRequest) => {
+    try {
+      const token = localStorage.getItem("access_token");
+      await fetch(`http://127.0.0.1:8000/api/loops/requests/${req.id}/approve/`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch { /* backend not ready */ }
+    setRequests((prev) => prev.filter((r) => r.id !== req.id));
+    setLoops((prev) => prev.map((l) => l.id === req.loopId ? { ...l, members: l.members + 1 } : l));
+  };
+
+  const handleDenyRequest = async (req: JoinRequest) => {
+    try {
+      const token = localStorage.getItem("access_token");
+      await fetch(`http://127.0.0.1:8000/api/loops/requests/${req.id}/deny/`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch { /* backend not ready */ }
+    setRequests((prev) => prev.filter((r) => r.id !== req.id));
   };
 
   const handlePost = async () => {
@@ -560,17 +650,10 @@ export default function LoopsPage() {
         body: JSON.stringify({ text: draft }),
       });
       const data = await res.json();
-      if (res.ok) {
-        setPosts([data, ...posts]);
-        setDraft("");
-      } else {
-        setPostError(data.error || "Failed to post.");
-      }
-    } catch {
-      setPostError("Cannot connect to server.");
-    } finally {
-      setPosting(false);
-    }
+      if (res.ok) { setPosts([data, ...posts]); setDraft(""); }
+      else setPostError(data.error || "Failed to post.");
+    } catch { setPostError("Cannot connect to server."); }
+    finally { setPosting(false); }
   };
 
   const handleLikePost = async (postId: number) => {
@@ -617,16 +700,21 @@ export default function LoopsPage() {
   };
 
   const filteredLoops = loops.filter((l) => {
-    const matchesSearch = l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    const matchesSearch =
+      l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       l.desc.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesTag = activeTag === "All" || l.tag === activeTag;
     return matchesSearch && matchesTag;
   });
 
-  const joinedLoopNames = loops.filter((l) => joinedIds.includes(l.id)).map((l) => l.name);
+  const joinedLoopNames = loops.filter((l) => joinedMap[l.id]).map((l) => l.name);
   const filteredPosts = feedFilter === "myloops"
     ? posts.filter((p) => p.loop && joinedLoopNames.includes(p.loop))
     : posts;
+
+  const myRequests = requests.filter((r) =>
+    loops.find((l) => l.id === r.loopId && l.createdByMe)
+  );
 
   return (
     <AppShell>
@@ -641,6 +729,14 @@ export default function LoopsPage() {
             <TabsTrigger value="explore">Explore</TabsTrigger>
             <TabsTrigger value="feed">Feed</TabsTrigger>
             <TabsTrigger value="challenges">Challenges</TabsTrigger>
+            <TabsTrigger value="requests" className="relative">
+              Requests
+              {myRequests.length > 0 && (
+                <span className="ml-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center font-bold">
+                  {myRequests.length}
+                </span>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           {/* ── Explore Tab ── */}
@@ -684,9 +780,12 @@ export default function LoopsPage() {
                   <LoopCard
                     key={l.id}
                     loop={l}
-                    joined={joinedIds.includes(l.id)}
+                    joined={!!joinedMap[l.id]}
+                    joinedAt={joinedMap[l.id]}
+                    pendingRequest={pendingIds.includes(l.id)}
                     onJoinLeave={handleJoinLeave}
                     onEdit={l.createdByMe ? setEditingLoop : undefined}
+                    onDelete={l.createdByMe ? setDeletingLoop : undefined}
                   />
                 ))}
               </div>
@@ -695,8 +794,6 @@ export default function LoopsPage() {
 
           {/* ── Feed Tab ── */}
           <TabsContent value="feed" className="space-y-4 mt-6 max-w-2xl">
-
-            {/* Feed filter toggle */}
             <div className="flex gap-2">
               <button onClick={() => setFeedFilter("all")}
                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
@@ -708,7 +805,7 @@ export default function LoopsPage() {
                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
                   feedFilter === "myloops" ? "gradient-bg text-primary-foreground border-transparent" : "glass border-border text-muted-foreground"
                 }`}>
-                My Loops {joinedIds.length > 0 && `(${joinedIds.length})`}
+                My Loops {Object.keys(joinedMap).length > 0 && `(${Object.keys(joinedMap).length})`}
               </button>
             </div>
 
@@ -743,7 +840,7 @@ export default function LoopsPage() {
               <Card className="glass border-0 p-8 text-center">
                 <p className="text-sm text-muted-foreground">
                   {feedFilter === "myloops"
-                    ? joinedIds.length === 0
+                    ? Object.keys(joinedMap).length === 0
                       ? "Join some loops first to see their posts here!"
                       : "No posts from your loops yet."
                     : "No posts yet. Be the first to share your progress!"}
@@ -784,6 +881,53 @@ export default function LoopsPage() {
               ))}
             </div>
           </TabsContent>
+
+          {/* ── Requests Tab ── */}
+          <TabsContent value="requests" className="space-y-4 mt-6 max-w-2xl">
+            {myRequests.length === 0 ? (
+              <Card className="glass border-0 p-8 text-center">
+                <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
+                  <UserCheck className="w-6 h-6 text-muted-foreground" />
+                </div>
+                <p className="font-medium text-sm">No pending requests</p>
+                <p className="text-xs text-muted-foreground mt-1">Join requests for your private loops will appear here.</p>
+              </Card>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">{myRequests.length} pending request{myRequests.length > 1 ? "s" : ""} for your loops</p>
+                {myRequests.map((req) => (
+                  <Card key={req.id} className="glass border-0 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
+                        {req.user[0].toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm">{req.user}</span>
+                          <span className="text-muted-foreground text-xs">@{req.handle}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Wants to join <span className="font-medium text-foreground">{req.loopName}</span> · {req.requestedAt}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <Button size="sm" onClick={() => handleApproveRequest(req)}
+                          className="gradient-bg text-primary-foreground border-0 gap-1">
+                          <UserCheck className="w-3.5 h-3.5" />
+                          Approve
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleDenyRequest(req)}
+                          className="border-red-200 text-red-500 hover:bg-red-50 gap-1">
+                          <UserX className="w-3.5 h-3.5" />
+                          Deny
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </>
+            )}
+          </TabsContent>
         </Tabs>
       </div>
 
@@ -792,6 +936,9 @@ export default function LoopsPage() {
       )}
       {editingLoop && (
         <EditLoopModal loop={editingLoop} onClose={() => setEditingLoop(null)} onSave={handleLoopEdited} />
+      )}
+      {deletingLoop && (
+        <DeleteLoopModal loop={deletingLoop} onClose={() => setDeletingLoop(null)} onConfirm={handleLoopDeleted} />
       )}
     </AppShell>
   );
