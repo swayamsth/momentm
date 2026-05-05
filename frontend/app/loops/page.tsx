@@ -115,22 +115,14 @@ function getMemberSince(dateStr: string) {
 
 function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80"
-      onClick={onClose}
-    >
-      <button
-        onClick={onClose}
-        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" onClick={onClose}>
+      <button onClick={onClose}
+        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors">
         <X className="w-5 h-5" />
       </button>
-      <img
-        src={src}
-        alt="Post image"
+      <img src={src} alt="Post image"
         className="max-w-full max-h-[90vh] rounded-2xl object-contain shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      />
+        onClick={(e) => e.stopPropagation()} />
     </div>
   );
 }
@@ -138,9 +130,7 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
 // ─── Delete Confirmation Modal ────────────────────────────────────────────────
 
 function DeleteLoopModal({ loop, onClose, onConfirm }: {
-  loop: Loop;
-  onClose: () => void;
-  onConfirm: () => void;
+  loop: Loop; onClose: () => void; onConfirm: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -157,9 +147,7 @@ function DeleteLoopModal({ loop, onClose, onConfirm }: {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-1 bg-red-500 hover:bg-red-600 text-white border-0" onClick={onConfirm}>
-            Delete Loop
-          </Button>
+          <Button className="flex-1 bg-red-500 hover:bg-red-600 text-white border-0" onClick={onConfirm}>Delete Loop</Button>
         </div>
       </Card>
     </div>
@@ -169,9 +157,7 @@ function DeleteLoopModal({ loop, onClose, onConfirm }: {
 // ─── Edit Loop Modal ──────────────────────────────────────────────────────────
 
 function EditLoopModal({ loop, onClose, onSave }: {
-  loop: Loop;
-  onClose: () => void;
-  onSave: (updated: Partial<Loop>) => void;
+  loop: Loop; onClose: () => void; onSave: (updated: Partial<Loop>) => void;
 }) {
   const [name, setName] = useState(loop.name);
   const [desc, setDesc] = useState(loop.desc);
@@ -188,7 +174,7 @@ function EditLoopModal({ loop, onClose, onSave }: {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name, description: desc, tag, is_private: isPrivate }),
       });
-    } catch { /* backend not ready yet */ }
+    } catch { /* backend not ready */ }
     onSave({ name, desc, tag, isPrivate });
     setLoading(false);
     onClose();
@@ -208,14 +194,12 @@ function EditLoopModal({ loop, onClose, onSave }: {
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Loop Name</label>
             <input value={name} onChange={(e) => setName(e.target.value)}
-              className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-              maxLength={50} />
+              className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/30" maxLength={50} />
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
             <textarea value={desc} onChange={(e) => setDesc(e.target.value)}
-              className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none resize-none min-h-[80px] focus:ring-2 focus:ring-primary/30"
-              maxLength={200} />
+              className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none resize-none min-h-[80px] focus:ring-2 focus:ring-primary/30" maxLength={200} />
             <p className="text-xs text-muted-foreground text-right mt-1">{desc.length}/200</p>
           </div>
           <div>
@@ -258,8 +242,7 @@ function EditLoopModal({ loop, onClose, onSave }: {
 // ─── Create Loop Modal ────────────────────────────────────────────────────────
 
 function CreateLoopModal({ onClose, onCreate }: {
-  onClose: () => void;
-  onCreate: (loop: Loop) => void;
+  onClose: () => void; onCreate: (loop: Loop) => void;
 }) {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
@@ -274,14 +257,10 @@ function CreateLoopModal({ onClose, onCreate }: {
     setLoading(true);
     setError("");
     const newLoop: Loop = {
-      id: Date.now(),
-      name: name.trim(),
+      id: Date.now(), name: name.trim(),
       desc: desc.trim() || "No description yet.",
-      tag,
-      color: TAG_COLORS[tag] || TAG_COLORS["Other"],
-      isPrivate,
-      members: 1,
-      createdByMe: true,
+      tag, color: TAG_COLORS[tag] || TAG_COLORS["Other"],
+      isPrivate, members: 1, createdByMe: true,
       joinedAt: new Date().toISOString(),
     };
     try {
@@ -291,7 +270,7 @@ function CreateLoopModal({ onClose, onCreate }: {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name: newLoop.name, description: newLoop.desc, tag, is_private: isPrivate }),
       });
-    } catch { /* backend not ready yet */ }
+    } catch { /* backend not ready */ }
     onCreate(newLoop);
     setSuccess(true);
     setTimeout(onClose, 1200);
@@ -304,9 +283,7 @@ function CreateLoopModal({ onClose, onCreate }: {
       <Card className="glass-strong border-0 w-full max-w-md p-6 relative z-10 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Create a Loop</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X className="w-5 h-5" />
-          </button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
         </div>
         {success ? (
           <div className="py-8 text-center">
@@ -321,17 +298,13 @@ function CreateLoopModal({ onClose, onCreate }: {
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Loop Name *</label>
-                <input value={name} onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. 6AM Grind Squad"
-                  className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-                  maxLength={50} />
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 6AM Grind Squad"
+                  className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/30" maxLength={50} />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
-                <textarea value={desc} onChange={(e) => setDesc(e.target.value)}
-                  placeholder="What's this loop about?"
-                  className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none resize-none min-h-[80px] focus:ring-2 focus:ring-primary/30"
-                  maxLength={200} />
+                <textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="What's this loop about?"
+                  className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none resize-none min-h-[80px] focus:ring-2 focus:ring-primary/30" maxLength={200} />
                 <p className="text-xs text-muted-foreground text-right mt-1">{desc.length}/200</p>
               </div>
               <div>
@@ -377,9 +350,7 @@ function CreateLoopModal({ onClose, onCreate }: {
 // ─── Loop Card ────────────────────────────────────────────────────────────────
 
 function LoopCard({ loop, joined, joinedAt, onJoinLeave, onEdit, onDelete, pendingRequest }: {
-  loop: Loop;
-  joined: boolean;
-  joinedAt?: string;
+  loop: Loop; joined: boolean; joinedAt?: string;
   onJoinLeave: (id: number) => void;
   onEdit?: (loop: Loop) => void;
   onDelete?: (loop: Loop) => void;
@@ -393,8 +364,7 @@ function LoopCard({ loop, joined, joinedAt, onJoinLeave, onEdit, onDelete, pendi
     try {
       const token = localStorage.getItem("access_token");
       await fetch(`http://127.0.0.1:8000/api/loops/${loop.id}/${joined ? "leave" : "join"}/`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        method: "POST", headers: { Authorization: `Bearer ${token}` },
       });
     } catch { /* backend not ready */ }
     onJoinLeave(loop.id);
@@ -428,9 +398,7 @@ function LoopCard({ loop, joined, joinedAt, onJoinLeave, onEdit, onDelete, pendi
       <h3 className="font-semibold">{loop.name}</h3>
       <p className="text-sm text-muted-foreground mt-1 mb-3 flex-1">{loop.desc}</p>
       {joined && joinedAt && (
-        <p className="text-xs text-primary/70 font-medium mb-3">
-          Member since {getMemberSince(joinedAt)}
-        </p>
+        <p className="text-xs text-primary/70 font-medium mb-3">Member since {getMemberSince(joinedAt)}</p>
       )}
       {pendingRequest && (
         <p className="text-xs text-amber-500 font-medium mb-3">⏳ Request pending approval</p>
@@ -440,13 +408,9 @@ function LoopCard({ loop, joined, joinedAt, onJoinLeave, onEdit, onDelete, pendi
         {!loop.createdByMe && (
           <Button size="sm" onClick={handleClick} disabled={loading || pendingRequest}
             variant={joined ? "outline" : "default"}
-            className={
-              joined
-                ? "border-red-300 text-red-500 hover:bg-red-50 hover:text-red-600"
-                : pendingRequest
-                ? "opacity-60 cursor-not-allowed border-border text-muted-foreground"
-                : "gradient-bg text-primary-foreground border-0"
-            }>
+            className={joined ? "border-red-300 text-red-500 hover:bg-red-50 hover:text-red-600"
+              : pendingRequest ? "opacity-60 cursor-not-allowed border-border text-muted-foreground"
+              : "gradient-bg text-primary-foreground border-0"}>
             {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : joined ? "Leave" : pendingRequest ? "Pending" : "Join"}
           </Button>
         )}
@@ -481,9 +445,7 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
 
   return (
     <>
-      {lightboxSrc && (
-        <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
-      )}
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
       <Card className="glass border-0 p-4">
         <div className="flex gap-3">
           <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
@@ -501,11 +463,8 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
             {post.image && (
               <div className="mt-3 relative group cursor-pointer rounded-xl overflow-hidden"
                 onClick={() => setLightboxSrc(post.image!)}>
-                <img
-                  src={post.image}
-                  alt="Post attachment"
-                  className="w-full max-h-64 object-cover rounded-xl transition-transform group-hover:scale-[1.01]"
-                />
+                <img src={post.image} alt="Post attachment"
+                  className="w-full max-h-64 object-cover rounded-xl transition-transform group-hover:scale-[1.01]" />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-xl flex items-center justify-center">
                   <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
                 </div>
@@ -641,88 +600,73 @@ export default function LoopsPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Handle image file selection
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      setPostError("Image must be under 10MB.");
-      return;
-    }
+    if (file.size > 10 * 1024 * 1024) { setPostError("Image must be under 10MB."); return; }
     setImageFile(file);
     const reader = new FileReader();
     reader.onload = () => setImagePreview(reader.result as string);
     reader.readAsDataURL(file);
-    // Reset input so same file can be re-selected
     e.target.value = "";
   };
 
-  const handleRemoveImage = () => {
-    setImagePreview(null);
-    setImageFile(null);
-  };
+  const handleRemoveImage = () => { setImagePreview(null); setImageFile(null); };
 
   const handlePost = async () => {
     if (!draft.trim() && !imagePreview) return;
     setPosting(true);
     setPostError("");
+
+    // Build local post as fallback
+    const localPost: Post = {
+      id: Date.now(),
+      user: user?.first_name || "You",
+      handle: user?.email?.split("@")[0] || "you",
+      time: "just now",
+      text: draft,
+      likes: 0,
+      liked: false,
+      comments: [],
+      image: imagePreview,
+    };
+
     try {
       const token = localStorage.getItem("access_token");
-      // If we have an image, use FormData; otherwise JSON
-      if (imageFile) {
-        const formData = new FormData();
-        formData.append("text", draft);
-        formData.append("image", imageFile);
-        const res = await fetch("http://127.0.0.1:8000/api/posts/create/", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        });
-        const data = await res.json();
-        if (res.ok) {
-          setPosts((prev) => [data, ...prev]);
-          setDraft("");
-          setImagePreview(null);
-          setImageFile(null);
-          setPosting(false);
-          return;
+      if (token) {
+        if (imageFile) {
+          const formData = new FormData();
+          formData.append("text", draft);
+          formData.append("image", imageFile);
+          const res = await fetch("http://127.0.0.1:8000/api/posts/create/", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setPosts((prev) => [data, ...prev]);
+            setDraft(""); setImagePreview(null); setImageFile(null);
+            setPosting(false); return;
+          }
         } else {
-          setPostError(data.error || "Failed to post.");
-        }
-      } else {
-        const res = await fetch("http://127.0.0.1:8000/api/posts/create/", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ text: draft }),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          setPosts((prev) => [data, ...prev]);
-          setDraft("");
-          setPosting(false);
-          return;
-        } else {
-          setPostError(data.error || "Failed to post.");
+          const res = await fetch("http://127.0.0.1:8000/api/posts/create/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ text: draft }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setPosts((prev) => [data, ...prev]);
+            setDraft(""); setPosting(false); return;
+          }
         }
       }
-    } catch {
-      // Backend not ready — create post locally with image preview
-      const localPost: Post = {
-        id: Date.now(),
-        user: user?.first_name || "You",
-        handle: user?.email?.split("@")[0] || "you",
-        time: "just now",
-        text: draft,
-        likes: 0,
-        liked: false,
-        comments: [],
-        image: imagePreview,
-      };
-      setPosts((prev) => [localPost, ...prev]);
-      setDraft("");
-      setImagePreview(null);
-      setImageFile(null);
-    }
+    } catch { /* network error — fall through to local */ }
+
+    // Backend not ready — post locally
+    setPosts((prev) => [localPost, ...prev]);
+    setDraft(""); setImagePreview(null); setImageFile(null);
     setPosting(false);
   };
 
@@ -757,8 +701,7 @@ export default function LoopsPage() {
     try {
       const token = localStorage.getItem("access_token");
       await fetch(`http://127.0.0.1:8000/api/loops/${deletingLoop.id}/delete/`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        method: "DELETE", headers: { Authorization: `Bearer ${token}` },
       });
     } catch { /* backend not ready */ }
     setLoops((prev) => prev.filter((l) => l.id !== deletingLoop.id));
@@ -772,8 +715,7 @@ export default function LoopsPage() {
     try {
       const token = localStorage.getItem("access_token");
       await fetch(`http://127.0.0.1:8000/api/loops/requests/${req.id}/approve/`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        method: "POST", headers: { Authorization: `Bearer ${token}` },
       });
     } catch { /* backend not ready */ }
     setRequests((prev) => prev.filter((r) => r.id !== req.id));
@@ -784,8 +726,7 @@ export default function LoopsPage() {
     try {
       const token = localStorage.getItem("access_token");
       await fetch(`http://127.0.0.1:8000/api/loops/requests/${req.id}/deny/`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        method: "POST", headers: { Authorization: `Bearer ${token}` },
       });
     } catch { /* backend not ready */ }
     setRequests((prev) => prev.filter((r) => r.id !== req.id));
@@ -795,13 +736,11 @@ export default function LoopsPage() {
     try {
       const token = localStorage.getItem("access_token");
       const res = await fetch(`http://127.0.0.1:8000/api/posts/${postId}/like/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.ok) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, likes: data.likes, liked: data.liked } : p));
     } catch {
-      // Toggle locally
       setPosts((prev) => prev.map((p) =>
         p.id === postId ? { ...p, liked: !p.liked, likes: p.liked ? p.likes - 1 : p.likes + 1 } : p
       ));
@@ -812,14 +751,12 @@ export default function LoopsPage() {
     try {
       const token = localStorage.getItem("access_token");
       const res = await fetch(`http://127.0.0.1:8000/api/posts/${postId}/comment/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ text }),
       });
       const data = await res.json();
       if (res.ok) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, comments: [...p.comments, data] } : p));
     } catch {
-      // Add locally
       const localComment: Comment = {
         id: Date.now(), user: user?.first_name || "You",
         handle: user?.email?.split("@")[0] || "you",
@@ -833,8 +770,7 @@ export default function LoopsPage() {
     try {
       const token = localStorage.getItem("access_token");
       const res = await fetch(`http://127.0.0.1:8000/api/comments/${commentId}/like/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.ok) {
@@ -845,7 +781,6 @@ export default function LoopsPage() {
         ));
       }
     } catch {
-      // Toggle locally
       setPosts((prev) => prev.map((p) =>
         p.id === postId
           ? { ...p, comments: p.comments.map((c) => c.id === commentId ? { ...c, liked: !c.liked, likes: c.liked ? c.likes - 1 : c.likes + 1 } : c) }
@@ -855,8 +790,7 @@ export default function LoopsPage() {
   };
 
   const filteredLoops = loops.filter((l) => {
-    const matchesSearch =
-      l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    const matchesSearch = l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       l.desc.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesTag = activeTag === "All" || l.tag === activeTag;
     return matchesSearch && matchesTag;
@@ -867,9 +801,7 @@ export default function LoopsPage() {
     ? posts.filter((p) => p.loop && joinedLoopNames.includes(p.loop))
     : posts;
 
-  const myRequests = requests.filter((r) =>
-    loops.find((l) => l.id === r.loopId && l.createdByMe)
-  );
+  const myRequests = requests.filter((r) => loops.find((l) => l.id === r.loopId && l.createdByMe));
 
   return (
     <AppShell>
@@ -911,20 +843,14 @@ export default function LoopsPage() {
                 <Plus className="w-4 h-4 mr-1" />Create
               </Button>
             </div>
-
             <div className="flex gap-2 flex-wrap">
               {ALL_TAGS.map((t) => (
                 <button key={t} onClick={() => setActiveTag(t)}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${
-                    activeTag === t
-                      ? "gradient-bg text-primary-foreground border-transparent"
-                      : "glass border-border text-muted-foreground hover:border-primary/40"
-                  }`}>
-                  {t}
-                </button>
+                    activeTag === t ? "gradient-bg text-primary-foreground border-transparent" : "glass border-border text-muted-foreground hover:border-primary/40"
+                  }`}>{t}</button>
               ))}
             </div>
-
             {filteredLoops.length === 0 ? (
               <Card className="glass border-0 p-8 text-center">
                 <p className="text-sm text-muted-foreground">No loops found. Try a different search!</p>
@@ -932,14 +858,12 @@ export default function LoopsPage() {
             ) : (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredLoops.map((l) => (
-                  <LoopCard
-                    key={l.id} loop={l}
+                  <LoopCard key={l.id} loop={l}
                     joined={!!joinedMap[l.id]} joinedAt={joinedMap[l.id]}
                     pendingRequest={pendingIds.includes(l.id)}
                     onJoinLeave={handleJoinLeave}
                     onEdit={l.createdByMe ? setEditingLoop : undefined}
-                    onDelete={l.createdByMe ? setDeletingLoop : undefined}
-                  />
+                    onDelete={l.createdByMe ? setDeletingLoop : undefined} />
                 ))}
               </div>
             )}
@@ -951,9 +875,7 @@ export default function LoopsPage() {
               <button onClick={() => setFeedFilter("all")}
                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
                   feedFilter === "all" ? "gradient-bg text-primary-foreground border-transparent" : "glass border-border text-muted-foreground"
-                }`}>
-                All Posts
-              </button>
+                }`}>All Posts</button>
               <button onClick={() => setFeedFilter("myloops")}
                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
                   feedFilter === "myloops" ? "gradient-bg text-primary-foreground border-transparent" : "glass border-border text-muted-foreground"
@@ -975,7 +897,7 @@ export default function LoopsPage() {
                     className="w-full bg-transparent text-sm outline-none resize-none min-h-[60px]"
                     maxLength={500} />
 
-                  {/* Image preview before posting */}
+                  {/* Image preview */}
                   {imagePreview && (
                     <div className="relative mt-2 rounded-xl overflow-hidden inline-block">
                       <img src={imagePreview} alt="Preview"
@@ -991,25 +913,16 @@ export default function LoopsPage() {
 
                   <div className="flex items-center justify-between mt-2">
                     <div className="flex items-center gap-2">
-                      {/* Hidden file input */}
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={handleImageSelect}
-                      />
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
+                      <input ref={fileInputRef} type="file" accept="image/*"
+                        className="hidden" onChange={handleImageSelect} />
+                      <button onClick={() => fileInputRef.current?.click()}
                         className="text-muted-foreground hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-accent"
-                        title="Attach image"
-                      >
+                        title="Attach image">
                         <ImageIcon className="w-4 h-4" />
                       </button>
                       <span className="text-xs text-muted-foreground">{draft.length}/500</span>
                     </div>
-                    <Button size="sm" className="gradient-bg border-0"
-                      onClick={handlePost}
+                    <Button size="sm" className="gradient-bg border-0" onClick={handlePost}
                       disabled={posting || (!draft.trim() && !imagePreview)}>
                       {posting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
                       {posting ? "Posting..." : "Post"}
