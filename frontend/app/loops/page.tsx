@@ -7,20 +7,34 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import {
   Heart, MessageCircle, Repeat2, Users, Target, Search,
-  Plus, Loader2, Send, X, Lock, Globe
+  Plus, Loader2, Send, X, Lock, Globe, Pencil, Check
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
-// ─── Static Data ────────────────────────────────────────────────────────────
+// ─── Static Data ─────────────────────────────────────────────────────────────
 
-const loopsData = [
-  { id: 1, name: "5AM Run Club", members: 1240, tag: "Running", desc: "Early-morning runners pushing each other.", color: "oklch(0.6 0.22 255)", isPrivate: false },
-  { id: 2, name: "Mindful Mornings", members: 820, tag: "Mind", desc: "10-minute meditation streaks together.", color: "oklch(0.55 0.18 300)", isPrivate: false },
-  { id: 3, name: "Strength 200", members: 450, tag: "Strength", desc: "200 reps a day — bodyweight or weighted.", color: "oklch(0.62 0.22 25)", isPrivate: true },
-  { id: 4, name: "Plant-Based Pros", members: 690, tag: "Nutrition", desc: "Daily plant-forward meal logs.", color: "oklch(0.7 0.16 155)", isPrivate: false },
-  { id: 5, name: "Cycle 100", members: 320, tag: "Cycling", desc: "100km a week, every week.", color: "oklch(0.78 0.16 75)", isPrivate: false },
-  { id: 6, name: "Sleep Stack", members: 510, tag: "Recovery", desc: "Lights out by 10:30pm.", color: "oklch(0.5 0.15 280)", isPrivate: true },
+const PRESET_TAGS = ["Running", "Mind", "Strength", "Nutrition", "Cycling", "Recovery", "Sleep", "Other"];
+const ALL_TAGS = ["All", ...PRESET_TAGS];
+
+const initialLoops = [
+  { id: 1, name: "5AM Run Club", members: 1240, tag: "Running", desc: "Early-morning runners pushing each other.", color: "oklch(0.6 0.22 255)", isPrivate: false, createdByMe: false },
+  { id: 2, name: "Mindful Mornings", members: 820, tag: "Mind", desc: "10-minute meditation streaks together.", color: "oklch(0.55 0.18 300)", isPrivate: false, createdByMe: false },
+  { id: 3, name: "Strength 200", members: 450, tag: "Strength", desc: "200 reps a day — bodyweight or weighted.", color: "oklch(0.62 0.22 25)", isPrivate: true, createdByMe: false },
+  { id: 4, name: "Plant-Based Pros", members: 690, tag: "Nutrition", desc: "Daily plant-forward meal logs.", color: "oklch(0.7 0.16 155)", isPrivate: false, createdByMe: false },
+  { id: 5, name: "Cycle 100", members: 320, tag: "Cycling", desc: "100km a week, every week.", color: "oklch(0.78 0.16 75)", isPrivate: false, createdByMe: false },
+  { id: 6, name: "Sleep Stack", members: 510, tag: "Recovery", desc: "Lights out by 10:30pm.", color: "oklch(0.5 0.15 280)", isPrivate: true, createdByMe: false },
 ];
+
+const TAG_COLORS: Record<string, string> = {
+  Running: "oklch(0.6 0.22 255)",
+  Mind: "oklch(0.55 0.18 300)",
+  Strength: "oklch(0.62 0.22 25)",
+  Nutrition: "oklch(0.7 0.16 155)",
+  Cycling: "oklch(0.78 0.16 75)",
+  Recovery: "oklch(0.5 0.15 280)",
+  Sleep: "oklch(0.65 0.18 220)",
+  Other: "oklch(0.6 0.08 250)",
+};
 
 const challengesData = [
   { name: "March Mile-A-Day", loop: "5AM Run Club", progress: 68, goal: "31 miles total", participants: 240, color: "oklch(0.6 0.22 255)" },
@@ -29,9 +43,18 @@ const challengesData = [
   { name: "Push-Up October", loop: "Strength 200", progress: 23, goal: "10,000 group push-ups", participants: 145, color: "oklch(0.62 0.22 25)" },
 ];
 
-const ALL_TAGS = ["All", "Running", "Mind", "Strength", "Nutrition", "Cycling", "Recovery"];
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+interface Loop {
+  id: number;
+  name: string;
+  members: number;
+  tag: string;
+  desc: string;
+  color: string;
+  isPrivate: boolean;
+  createdByMe: boolean;
+}
 
 interface Comment {
   id: number;
@@ -52,14 +75,129 @@ interface Post {
   likes: number;
   liked: boolean;
   comments: Comment[];
+  loop?: string;
 }
 
-// ─── Create Loop Modal ───────────────────────────────────────────────────────
+// ─── Edit Loop Modal ──────────────────────────────────────────────────────────
 
-function CreateLoopModal({ onClose }: { onClose: () => void }) {
+function EditLoopModal({ loop, onClose, onSave }: {
+  loop: Loop;
+  onClose: () => void;
+  onSave: (updated: Partial<Loop>) => void;
+}) {
+  const [name, setName] = useState(loop.name);
+  const [desc, setDesc] = useState(loop.desc);
+  const [tag, setTag] = useState(loop.tag);
+  const [isPrivate, setIsPrivate] = useState(loop.isPrivate);
+  const [customTag, setCustomTag] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSave = async () => {
+    setLoading(true);
+    const finalTag = tag === "Custom" ? customTag || "Other" : tag;
+    try {
+      const token = localStorage.getItem("access_token");
+      await fetch(`http://127.0.0.1:8000/api/loops/${loop.id}/edit/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name, description: desc, tag: finalTag, is_private: isPrivate }),
+      });
+    } catch { /* backend not ready yet, still update locally */ }
+    onSave({ name, desc, tag: finalTag, isPrivate });
+    setLoading(false);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-foreground/20 backdrop-blur-sm" onClick={onClose} />
+      <Card className="glass-strong border-0 w-full max-w-md p-6 relative z-10 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Edit Loop</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Loop Name</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+              maxLength={50}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
+            <textarea
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none resize-none min-h-[80px] focus:ring-2 focus:ring-primary/30"
+              maxLength={200}
+            />
+            <p className="text-xs text-muted-foreground text-right mt-1">{desc.length}/200</p>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Category</label>
+            <div className="flex flex-wrap gap-2">
+              {PRESET_TAGS.map((t) => (
+                <button key={t} onClick={() => setTag(t)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-all border ${tag === t ? "gradient-bg text-primary-foreground border-transparent" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                  {t}
+                </button>
+              ))}
+              <button onClick={() => setTag("Custom")}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all border ${tag === "Custom" ? "gradient-bg text-primary-foreground border-transparent" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                + Custom
+              </button>
+            </div>
+            {tag === "Custom" && (
+              <input
+                value={customTag}
+                onChange={(e) => setCustomTag(e.target.value)}
+                placeholder="Type your category..."
+                className="mt-2 w-full bg-muted rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                maxLength={30}
+              />
+            )}
+          </div>
+          <div className="flex items-center justify-between glass rounded-xl px-4 py-3">
+            <div className="flex items-center gap-2">
+              {isPrivate ? <Lock className="w-4 h-4 text-muted-foreground" /> : <Globe className="w-4 h-4 text-muted-foreground" />}
+              <div>
+                <p className="text-sm font-medium">{isPrivate ? "Private Loop" : "Public Loop"}</p>
+                <p className="text-xs text-muted-foreground">{isPrivate ? "Invite only" : "Anyone can join"}</p>
+              </div>
+            </div>
+            <button onClick={() => setIsPrivate(!isPrivate)}
+              className={`w-10 h-6 rounded-full transition-all relative ${isPrivate ? "gradient-bg" : "bg-muted"}`}>
+              <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${isPrivate ? "left-5" : "left-1"}`} />
+            </button>
+          </div>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-1 gradient-bg border-0" onClick={handleSave} disabled={loading || !name.trim()}>
+            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Check className="w-4 h-4 mr-1" />}
+            Save Changes
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Create Loop Modal ────────────────────────────────────────────────────────
+
+function CreateLoopModal({ onClose, onCreate }: {
+  onClose: () => void;
+  onCreate: (loop: Loop) => void;
+}) {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [tag, setTag] = useState("Running");
+  const [customTag, setCustomTag] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -67,27 +205,33 @@ function CreateLoopModal({ onClose }: { onClose: () => void }) {
 
   const handleCreate = async () => {
     if (!name.trim()) { setError("Loop name is required."); return; }
+    if (tag === "Custom" && !customTag.trim()) { setError("Please enter a custom category."); return; }
     setLoading(true);
     setError("");
+    const finalTag = tag === "Custom" ? customTag.trim() : tag;
+    const newLoop: Loop = {
+      id: Date.now(),
+      name: name.trim(),
+      desc: desc.trim() || "No description yet.",
+      tag: finalTag,
+      color: TAG_COLORS[finalTag] || TAG_COLORS["Other"],
+      isPrivate,
+      members: 1,
+      createdByMe: true,
+    };
     try {
       const token = localStorage.getItem("access_token");
       const res = await fetch("http://127.0.0.1:8000/api/loops/create/", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name, description: desc, tag, is_private: isPrivate }),
+        body: JSON.stringify({ name: newLoop.name, description: newLoop.desc, tag: finalTag, is_private: isPrivate }),
       });
-      if (res.ok) {
-        setSuccess(true);
-        setTimeout(onClose, 1200);
-      } else {
-        const data = await res.json();
-        setError(data.error || "Failed to create loop.");
-      }
-    } catch {
-      setError("Cannot connect to server.");
-    } finally {
-      setLoading(false);
-    }
+      if (!res.ok) { /* backend not ready, still create locally */ }
+    } catch { /* backend not ready yet */ }
+    onCreate(newLoop);
+    setSuccess(true);
+    setTimeout(onClose, 1200);
+    setLoading(false);
   };
 
   return (
@@ -100,7 +244,6 @@ function CreateLoopModal({ onClose }: { onClose: () => void }) {
             <X className="w-5 h-5" />
           </button>
         </div>
-
         {success ? (
           <div className="py-8 text-center">
             <div className="w-12 h-12 rounded-full gradient-bg flex items-center justify-center mx-auto mb-3">
@@ -136,20 +279,26 @@ function CreateLoopModal({ onClose }: { onClose: () => void }) {
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Category</label>
                 <div className="flex flex-wrap gap-2">
-                  {ALL_TAGS.filter(t => t !== "All").map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setTag(t)}
-                      className={`px-3 py-1 rounded-full text-xs font-medium transition-all border ${
-                        tag === t
-                          ? "gradient-bg text-primary-foreground border-transparent"
-                          : "border-border text-muted-foreground hover:border-primary/40"
-                      }`}
-                    >
+                  {PRESET_TAGS.map((t) => (
+                    <button key={t} onClick={() => setTag(t)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-all border ${tag === t ? "gradient-bg text-primary-foreground border-transparent" : "border-border text-muted-foreground hover:border-primary/40"}`}>
                       {t}
                     </button>
                   ))}
+                  <button onClick={() => setTag("Custom")}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-all border ${tag === "Custom" ? "gradient-bg text-primary-foreground border-transparent" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                    + Custom
+                  </button>
                 </div>
+                {tag === "Custom" && (
+                  <input
+                    value={customTag}
+                    onChange={(e) => setCustomTag(e.target.value)}
+                    placeholder="Type your category..."
+                    className="mt-2 w-full bg-muted rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                    maxLength={30}
+                  />
+                )}
               </div>
               <div className="flex items-center justify-between glass rounded-xl px-4 py-3">
                 <div className="flex items-center gap-2">
@@ -159,20 +308,16 @@ function CreateLoopModal({ onClose }: { onClose: () => void }) {
                     <p className="text-xs text-muted-foreground">{isPrivate ? "Invite only" : "Anyone can join"}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setIsPrivate(!isPrivate)}
-                  className={`w-10 h-6 rounded-full transition-all relative ${isPrivate ? "gradient-bg" : "bg-muted"}`}
-                >
+                <button onClick={() => setIsPrivate(!isPrivate)}
+                  className={`w-10 h-6 rounded-full transition-all relative ${isPrivate ? "gradient-bg" : "bg-muted"}`}>
                   <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${isPrivate ? "left-5" : "left-1"}`} />
                 </button>
               </div>
             </div>
-
             {error && <p className="text-xs text-red-500">{error}</p>}
-
             <div className="flex gap-2 pt-1">
               <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-              <Button className="flex-1 gradient-bg" onClick={handleCreate} disabled={loading || !name.trim()}>
+              <Button className="flex-1 gradient-bg border-0" onClick={handleCreate} disabled={loading || !name.trim()}>
                 {loading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
                 {loading ? "Creating..." : "Create Loop"}
               </Button>
@@ -184,71 +329,64 @@ function CreateLoopModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ─── Loop Card ───────────────────────────────────────────────────────────────
+// ─── Loop Card ────────────────────────────────────────────────────────────────
 
-function LoopCard({ loop }: { loop: typeof loopsData[0] }) {
-  const [joined, setJoined] = useState(false);
-  const [members, setMembers] = useState(loop.members);
+function LoopCard({ loop, joined, onJoinLeave, onEdit }: {
+  loop: Loop;
+  joined: boolean;
+  onJoinLeave: (id: number) => void;
+  onEdit?: (loop: Loop) => void;
+}) {
   const [loading, setLoading] = useState(false);
 
-  const handleJoin = async () => {
+  const handleClick = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem("access_token");
-      const res = await fetch(`http://127.0.0.1:8000/api/loops/${loop.id}/join/`, {
+      await fetch(`http://127.0.0.1:8000/api/loops/${loop.id}/${joined ? "leave" : "join"}/`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) {
-        setJoined(!joined);
-        setMembers(joined ? members - 1 : members + 1);
-      }
-    } catch {
-      // still toggle locally if backend not ready yet
-      setJoined(!joined);
-      setMembers(joined ? members - 1 : members + 1);
-    } finally {
-      setLoading(false);
-    }
+    } catch { /* backend not ready, still toggle locally */ }
+    onJoinLeave(loop.id);
+    setLoading(false);
   };
 
   return (
     <Card className="glass border-0 p-5 hover:shadow-[var(--shadow-elegant)] transition-all hover:-translate-y-0.5 flex flex-col">
       <div className="flex items-start justify-between mb-3">
-        <div
-          className="w-12 h-12 rounded-xl flex items-center justify-center"
-          style={{ background: `color-mix(in oklab, ${loop.color} 18%, transparent)` }}
-        >
+        <div className="w-12 h-12 rounded-xl flex items-center justify-center"
+          style={{ background: `color-mix(in oklab, ${loop.color} 18%, transparent)` }}>
           <Users className="w-5 h-5" style={{ color: loop.color }} />
         </div>
         <div className="flex items-center gap-2">
-          {loop.isPrivate && (
-            <span title="Private loop">
-              <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-            </span>
-          )}
+          {loop.isPrivate && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
           <Badge variant="secondary" className="text-xs">{loop.tag}</Badge>
+          {loop.createdByMe && onEdit && (
+            <button onClick={() => onEdit(loop)}
+              className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-lg hover:bg-accent">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
       <h3 className="font-semibold">{loop.name}</h3>
       <p className="text-sm text-muted-foreground mt-1 mb-4 flex-1">{loop.desc}</p>
       <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">{members.toLocaleString()} members</span>
-        <Button
-          size="sm"
+        <span className="text-xs text-muted-foreground">
+          {(joined ? loop.members : loop.members).toLocaleString()} members
+        </span>
+        <Button size="sm" onClick={handleClick} disabled={loading}
           variant={joined ? "outline" : "default"}
-          className={joined ? "" : "gradient-bg text-primary-foreground border-0"}
-          onClick={handleJoin}
-          disabled={loading}
-        >
-          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : joined ? "Joined ✓" : "Join"}
+          className={joined ? "border-red-300 text-red-500 hover:bg-red-50 hover:text-red-600" : "gradient-bg text-primary-foreground border-0"}>
+          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : joined ? "Leave" : "Join"}
         </Button>
       </div>
     </Card>
   );
 }
 
-// ─── Post Card ───────────────────────────────────────────────────────────────
+// ─── Post Card ────────────────────────────────────────────────────────────────
 
 function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
   post: Post;
@@ -278,20 +416,17 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
           <div className="flex items-center gap-2 text-sm flex-wrap">
             <span className="font-semibold">{post.user}</span>
             <span className="text-muted-foreground">@{post.handle} · {post.time}</span>
+            {post.loop && <Badge variant="secondary" className="text-xs">{post.loop}</Badge>}
           </div>
           <p className="text-sm mt-1 leading-relaxed">{post.text}</p>
           <div className="flex items-center gap-6 mt-3 text-muted-foreground">
-            <button
-              onClick={() => onLikePost(post.id)}
-              className={`flex items-center gap-1.5 text-xs transition-colors ${post.liked ? "text-red-500" : "hover:text-red-500"}`}
-            >
+            <button onClick={() => onLikePost(post.id)}
+              className={`flex items-center gap-1.5 text-xs transition-colors ${post.liked ? "text-red-500" : "hover:text-red-500"}`}>
               <Heart className={`w-4 h-4 ${post.liked ? "fill-red-500" : ""}`} />
               {post.likes}
             </button>
-            <button
-              onClick={() => setShowComments(!showComments)}
-              className={`flex items-center gap-1.5 text-xs transition-colors ${showComments ? "text-primary" : "hover:text-primary"}`}
-            >
+            <button onClick={() => setShowComments(!showComments)}
+              className={`flex items-center gap-1.5 text-xs transition-colors ${showComments ? "text-primary" : "hover:text-primary"}`}>
               <MessageCircle className="w-4 h-4" />
               {post.comments.length}
             </button>
@@ -299,26 +434,17 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
               <Repeat2 className="w-4 h-4" />
             </button>
           </div>
-
           {showComments && (
             <div className="mt-4 space-y-3">
               <div className="flex gap-2 items-start">
-                <div className="w-7 h-7 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-xs flex-shrink-0">
-                  ?
-                </div>
+                <div className="w-7 h-7 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-xs flex-shrink-0">?</div>
                 <div className="flex-1 flex gap-2">
-                  <input
-                    value={commentDraft}
-                    onChange={(e) => setCommentDraft(e.target.value)}
+                  <input value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleComment()}
                     placeholder="Write a comment..."
-                    className="flex-1 bg-muted rounded-lg px-3 py-1.5 text-xs outline-none"
-                  />
-                  <button
-                    onClick={handleComment}
-                    disabled={posting || !commentDraft.trim()}
-                    className="text-primary hover:opacity-70 disabled:opacity-30 transition"
-                  >
+                    className="flex-1 bg-muted rounded-lg px-3 py-1.5 text-xs outline-none" />
+                  <button onClick={handleComment} disabled={posting || !commentDraft.trim()}
+                    className="text-primary hover:opacity-70 disabled:opacity-30 transition">
                     {posting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                   </button>
                 </div>
@@ -337,10 +463,8 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
                         <span className="text-muted-foreground">@{comment.handle} · {comment.time}</span>
                       </div>
                       <p className="text-xs leading-relaxed">{comment.text}</p>
-                      <button
-                        onClick={() => onLikeComment(comment.id, post.id)}
-                        className={`flex items-center gap-1 text-xs mt-1.5 transition-colors ${comment.liked ? "text-red-500" : "text-muted-foreground hover:text-red-500"}`}
-                      >
+                      <button onClick={() => onLikeComment(comment.id, post.id)}
+                        className={`flex items-center gap-1 text-xs mt-1.5 transition-colors ${comment.liked ? "text-red-500" : "text-muted-foreground hover:text-red-500"}`}>
                         <Heart className={`w-3 h-3 ${comment.liked ? "fill-red-500" : ""}`} />
                         {comment.likes > 0 && comment.likes}
                       </button>
@@ -356,17 +480,21 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
   );
 }
 
-// ─── Main Page ───────────────────────────────────────────────────────────────
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function LoopsPage() {
+  const [loops, setLoops] = useState<Loop[]>(initialLoops);
+  const [joinedIds, setJoinedIds] = useState<number[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(true);
-  const [error, setError] = useState("");
+  const [postError, setPostError] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingLoop, setEditingLoop] = useState<Loop | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTag, setActiveTag] = useState("All");
+  const [feedFilter, setFeedFilter] = useState<"all" | "myloops">("all");
   const [user, setUser] = useState<{ first_name?: string; email?: string } | null>(null);
 
   useEffect(() => {
@@ -387,7 +515,7 @@ export default function LoopsPage() {
       const data = await res.json();
       setPosts(data);
     } catch {
-      setError("Could not load posts.");
+      // backend not ready yet, show empty state
     } finally {
       setLoadingPosts(false);
     }
@@ -399,10 +527,31 @@ export default function LoopsPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleJoinLeave = (id: number) => {
+    setJoinedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+    setLoops((prev) =>
+      prev.map((l) =>
+        l.id === id ? { ...l, members: joinedIds.includes(id) ? l.members - 1 : l.members + 1 } : l
+      )
+    );
+  };
+
+  const handleLoopCreated = (newLoop: Loop) => {
+    setLoops((prev) => [newLoop, ...prev]);
+    setJoinedIds((prev) => [...prev, newLoop.id]);
+  };
+
+  const handleLoopEdited = (updated: Partial<Loop>) => {
+    if (!editingLoop) return;
+    setLoops((prev) => prev.map((l) => l.id === editingLoop.id ? { ...l, ...updated } : l));
+  };
+
   const handlePost = async () => {
     if (!draft.trim()) return;
     setPosting(true);
-    setError("");
+    setPostError("");
     try {
       const token = localStorage.getItem("access_token");
       const res = await fetch("http://127.0.0.1:8000/api/posts/create/", {
@@ -415,10 +564,10 @@ export default function LoopsPage() {
         setPosts([data, ...posts]);
         setDraft("");
       } else {
-        setError(data.error || "Failed to post.");
+        setPostError(data.error || "Failed to post.");
       }
     } catch {
-      setError("Cannot connect to server.");
+      setPostError("Cannot connect to server.");
     } finally {
       setPosting(false);
     }
@@ -432,9 +581,7 @@ export default function LoopsPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) {
-        setPosts(posts.map((p) => p.id === postId ? { ...p, likes: data.likes, liked: data.liked } : p));
-      }
+      if (res.ok) setPosts(posts.map((p) => p.id === postId ? { ...p, likes: data.likes, liked: data.liked } : p));
     } catch { console.log("Like failed"); }
   };
 
@@ -447,9 +594,7 @@ export default function LoopsPage() {
         body: JSON.stringify({ text }),
       });
       const data = await res.json();
-      if (res.ok) {
-        setPosts(posts.map((p) => p.id === postId ? { ...p, comments: [...p.comments, data] } : p));
-      }
+      if (res.ok) setPosts(posts.map((p) => p.id === postId ? { ...p, comments: [...p.comments, data] } : p));
     } catch { console.log("Comment failed"); }
   };
 
@@ -471,12 +616,17 @@ export default function LoopsPage() {
     } catch { console.log("Comment like failed"); }
   };
 
-  const filteredLoops = loopsData.filter((l) => {
+  const filteredLoops = loops.filter((l) => {
     const matchesSearch = l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       l.desc.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesTag = activeTag === "All" || l.tag === activeTag;
     return matchesSearch && matchesTag;
   });
+
+  const joinedLoopNames = loops.filter((l) => joinedIds.includes(l.id)).map((l) => l.name);
+  const filteredPosts = feedFilter === "myloops"
+    ? posts.filter((p) => p.loop && joinedLoopNames.includes(p.loop))
+    : posts;
 
   return (
     <AppShell>
@@ -498,12 +648,8 @@ export default function LoopsPage() {
             <div className="flex gap-2">
               <div className="flex-1 glass rounded-xl flex items-center gap-2 px-4">
                 <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                <input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search loops..."
-                  className="flex-1 bg-transparent py-3 text-sm outline-none"
-                />
+                <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search loops..." className="flex-1 bg-transparent py-3 text-sm outline-none" />
                 {searchQuery && (
                   <button onClick={() => setSearchQuery("")} className="text-muted-foreground hover:text-foreground">
                     <X className="w-4 h-4" />
@@ -515,18 +661,14 @@ export default function LoopsPage() {
               </Button>
             </div>
 
-            {/* Tag filters */}
             <div className="flex gap-2 flex-wrap">
               {ALL_TAGS.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setActiveTag(t)}
+                <button key={t} onClick={() => setActiveTag(t)}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${
                     activeTag === t
                       ? "gradient-bg text-primary-foreground border-transparent"
                       : "glass border-border text-muted-foreground hover:border-primary/40"
-                  }`}
-                >
+                  }`}>
                   {t}
                 </button>
               ))}
@@ -534,32 +676,54 @@ export default function LoopsPage() {
 
             {filteredLoops.length === 0 ? (
               <Card className="glass border-0 p-8 text-center">
-                <p className="text-sm text-muted-foreground">No loops found for &quot;{searchQuery}&quot;</p>
+                <p className="text-sm text-muted-foreground">No loops found. Try a different search!</p>
               </Card>
             ) : (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredLoops.map((l) => <LoopCard key={l.id} loop={l} />)}
+                {filteredLoops.map((l) => (
+                  <LoopCard
+                    key={l.id}
+                    loop={l}
+                    joined={joinedIds.includes(l.id)}
+                    onJoinLeave={handleJoinLeave}
+                    onEdit={l.createdByMe ? setEditingLoop : undefined}
+                  />
+                ))}
               </div>
             )}
           </TabsContent>
 
           {/* ── Feed Tab ── */}
           <TabsContent value="feed" className="space-y-4 mt-6 max-w-2xl">
+
+            {/* Feed filter toggle */}
+            <div className="flex gap-2">
+              <button onClick={() => setFeedFilter("all")}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
+                  feedFilter === "all" ? "gradient-bg text-primary-foreground border-transparent" : "glass border-border text-muted-foreground"
+                }`}>
+                All Posts
+              </button>
+              <button onClick={() => setFeedFilter("myloops")}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
+                  feedFilter === "myloops" ? "gradient-bg text-primary-foreground border-transparent" : "glass border-border text-muted-foreground"
+                }`}>
+                My Loops {joinedIds.length > 0 && `(${joinedIds.length})`}
+              </button>
+            </div>
+
             <Card className="glass border-0 p-4">
               <div className="flex gap-3">
                 <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
                   {initials}
                 </div>
                 <div className="flex-1">
-                  <textarea
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
+                  <textarea value={draft} onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && handlePost()}
                     placeholder="Share your progress..."
                     className="w-full bg-transparent text-sm outline-none resize-none min-h-[60px]"
-                    maxLength={500}
-                  />
-                  {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
+                    maxLength={500} />
+                  {postError && <p className="text-xs text-red-500 mb-2">{postError}</p>}
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">{draft.length}/500 · Cmd+Enter to post</span>
                     <Button size="sm" className="gradient-bg border-0" onClick={handlePost} disabled={posting || !draft.trim()}>
@@ -575,19 +739,22 @@ export default function LoopsPage() {
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
               </div>
-            ) : posts.length === 0 ? (
+            ) : filteredPosts.length === 0 ? (
               <Card className="glass border-0 p-8 text-center">
-                <p className="text-sm text-muted-foreground">No posts yet. Be the first to share your progress!</p>
+                <p className="text-sm text-muted-foreground">
+                  {feedFilter === "myloops"
+                    ? joinedIds.length === 0
+                      ? "Join some loops first to see their posts here!"
+                      : "No posts from your loops yet."
+                    : "No posts yet. Be the first to share your progress!"}
+                </p>
               </Card>
             ) : (
-              posts.map((p) => (
-                <PostCard
-                  key={p.id}
-                  post={p}
+              filteredPosts.map((p) => (
+                <PostCard key={p.id} post={p}
                   onLikePost={handleLikePost}
                   onAddComment={handleAddComment}
-                  onLikeComment={handleLikeComment}
-                />
+                  onLikeComment={handleLikeComment} />
               ))
             )}
           </TabsContent>
@@ -620,7 +787,12 @@ export default function LoopsPage() {
         </Tabs>
       </div>
 
-      {showCreateModal && <CreateLoopModal onClose={() => setShowCreateModal(false)} />}
+      {showCreateModal && (
+        <CreateLoopModal onClose={() => setShowCreateModal(false)} onCreate={handleLoopCreated} />
+      )}
+      {editingLoop && (
+        <EditLoopModal loop={editingLoop} onClose={() => setEditingLoop(null)} onSave={handleLoopEdited} />
+      )}
     </AppShell>
   );
 }
