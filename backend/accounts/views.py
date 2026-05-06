@@ -372,3 +372,54 @@ def get_activities_view(request):
         'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
     } for log in logs]
     return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def leaderboard_view(request):
+    from django.db.models import Sum
+    from django.utils import timezone
+    from datetime import timedelta
+
+    user_ids = ActivityLog.objects.values_list('user_id', flat=True).distinct()
+    users = User.objects.filter(id__in=user_ids)
+
+    leaderboard = []
+    for user in users:
+        totals = ActivityLog.objects.filter(user=user).aggregate(
+            total_duration=Sum('duration'),
+            total_steps=Sum('steps'),
+            total_calories=Sum('calories'),
+        )
+        points = (
+            (totals['total_duration'] or 0) * 10 +
+            (totals['total_calories'] or 0) +
+            (totals['total_steps'] or 0) // 10
+        )
+
+        today = timezone.now().date()
+        dates = set(ActivityLog.objects.filter(user=user).values_list('logged_at__date', flat=True))
+        streak = 0
+        current = today
+        while current in dates:
+            streak += 1
+            current -= timedelta(days=1)
+        if streak == 0:
+            current = today - timedelta(days=1)
+            while current in dates:
+                streak += 1
+                current -= timedelta(days=1)
+
+        full_name = f"{user.first_name} {user.last_name}".strip() or user.email.split('@')[0]
+        leaderboard.append({
+            'name': full_name,
+            'points': points,
+            'streak': streak,
+            'you': user.id == request.user.id,
+        })
+
+    leaderboard.sort(key=lambda x: x['points'], reverse=True)
+    for i, entry in enumerate(leaderboard):
+        entry['rank'] = i + 1
+
+    return Response(leaderboard)
