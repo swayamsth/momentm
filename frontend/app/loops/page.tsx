@@ -35,29 +35,6 @@ const challengesData = [
   { name: "Push-Up October", loop: "Strength 200", progress: 23, goal: "10,000 group push-ups", participants: 145, color: "oklch(0.62 0.22 25)" },
 ];
 
-const DUMMY_POSTS: Post[] = [
-  {
-    id: 1, user: "Alex Kim", handle: "alexkim", time: "2m ago",
-    text: "Just crushed a 5K this morning! 🏃 Who else is keeping the streak alive?",
-    likes: 12, liked: false, loop: "5AM Run Club", image: null,
-    comments: [
-      { id: 1, user: "Jordan Lee", handle: "jordanlee", text: "Let's go! I'm on day 14!", likes: 3, liked: false, time: "1m ago" }
-    ]
-  },
-  {
-    id: 2, user: "Sarah Chen", handle: "sarahchen", time: "1h ago",
-    text: "10 minutes of meditation done ✅ Feeling so much calmer heading into the week.",
-    likes: 24, liked: false, loop: "Mindful Mornings", image: null,
-    comments: []
-  },
-  {
-    id: 3, user: "Marcus Webb", handle: "marcuswebb", time: "3h ago",
-    text: "200 push-ups done for the day 💪 Arms are toast but the streak continues!",
-    likes: 31, liked: false, loop: "Strength 200", image: null,
-    comments: []
-  },
-];
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Loop {
@@ -89,6 +66,7 @@ interface Comment {
   likes: number;
   liked: boolean;
   time: string;
+  isMine?: boolean;
 }
 
 interface Post {
@@ -102,7 +80,65 @@ interface Post {
   comments: Comment[];
   loop?: string;
   image: string | null;
+  isMine?: boolean;
 }
+
+// ─── Helper: load user safely ─────────────────────────────────────────────────
+
+function loadUser(): { first_name?: string; email?: string } | null {
+  try {
+    const stored = localStorage.getItem("user");
+    return stored ? JSON.parse(stored) : null;
+  } catch { return null; }
+}
+
+// ─── Helper: tag isMine on posts/comments from backend ───────────────────────
+// When backend returns posts, we check if the handle matches the logged-in user
+
+function tagMine(posts: Post[], handle: string): Post[] {
+  return posts.map((p) => ({
+    ...p,
+    isMine: p.handle === handle,
+    comments: p.comments.map((c) => ({ ...c, isMine: c.handle === handle })),
+  }));
+}
+
+// ─── Dummy data ───────────────────────────────────────────────────────────────
+
+const DUMMY_POSTS: Post[] = [
+  {
+    id: 1, user: "Alex Kim", handle: "alexkim", time: "2m ago",
+    text: "Just crushed a 5K this morning! 🏃 Who else is keeping the streak alive?",
+    likes: 12, liked: false, loop: "5AM Run Club", image: null, isMine: false,
+    comments: [
+      { id: 1, user: "Jordan Lee", handle: "jordanlee", text: "Let's go! I'm on day 14!", likes: 3, liked: false, time: "1m ago", isMine: false }
+    ]
+  },
+  {
+    id: 2, user: "Sarah Chen", handle: "sarahchen", time: "1h ago",
+    text: "10 minutes of meditation done ✅ Feeling so much calmer heading into the week.",
+    likes: 24, liked: false, loop: "Mindful Mornings", image: null, isMine: false, comments: []
+  },
+  {
+    id: 3, user: "Marcus Webb", handle: "marcuswebb", time: "3h ago",
+    text: "200 push-ups done for the day 💪 Arms are toast but the streak continues!",
+    likes: 31, liked: false, loop: "Strength 200", image: null, isMine: false, comments: []
+  },
+];
+
+const initialLoops: Loop[] = [
+  { id: 1, name: "5AM Run Club", members: 1240, tag: "Running", desc: "Early-morning runners pushing each other.", color: TAG_COLORS.Running, isPrivate: false, createdByMe: false },
+  { id: 2, name: "Mindful Mornings", members: 820, tag: "Mind", desc: "10-minute meditation streaks together.", color: TAG_COLORS.Mind, isPrivate: false, createdByMe: false },
+  { id: 3, name: "Strength 200", members: 450, tag: "Strength", desc: "200 reps a day — bodyweight or weighted.", color: TAG_COLORS.Strength, isPrivate: true, createdByMe: true },
+  { id: 4, name: "Plant-Based Pros", members: 690, tag: "Nutrition", desc: "Daily plant-forward meal logs.", color: TAG_COLORS.Nutrition, isPrivate: false, createdByMe: false },
+  { id: 5, name: "Cycle 100", members: 320, tag: "Cycling", desc: "100km a week, every week.", color: TAG_COLORS.Cycling, isPrivate: false, createdByMe: false },
+  { id: 6, name: "Sleep Stack", members: 510, tag: "Sleep", desc: "Lights out by 10:30pm.", color: TAG_COLORS.Sleep, isPrivate: true, createdByMe: false },
+];
+
+const dummyRequests: JoinRequest[] = [
+  { id: 1, loopId: 3, loopName: "Strength 200", user: "Alex Kim", handle: "alexkim", requestedAt: "2 hours ago" },
+  { id: 2, loopId: 3, loopName: "Strength 200", user: "Jordan Lee", handle: "jordanlee", requestedAt: "5 hours ago" },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -127,10 +163,10 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   );
 }
 
-// ─── Delete Confirmation Modal ────────────────────────────────────────────────
+// ─── Delete Confirm Modal (reusable) ─────────────────────────────────────────
 
-function DeleteLoopModal({ loop, onClose, onConfirm }: {
-  loop: Loop; onClose: () => void; onConfirm: () => void;
+function DeleteConfirmModal({ title, message, onClose, onConfirm }: {
+  title: string; message: string; onClose: () => void; onConfirm: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -140,17 +176,30 @@ function DeleteLoopModal({ loop, onClose, onConfirm }: {
           <Trash2 className="w-6 h-6 text-red-500" />
         </div>
         <div>
-          <h2 className="text-lg font-semibold">Delete &quot;{loop.name}&quot;?</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            This will permanently delete the loop and remove all members. This cannot be undone.
-          </p>
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <p className="text-sm text-muted-foreground mt-1">{message}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-1 bg-red-500 hover:bg-red-600 text-white border-0" onClick={onConfirm}>Delete Loop</Button>
+          <Button className="flex-1 bg-red-500 hover:bg-red-600 text-white border-0" onClick={onConfirm}>Delete</Button>
         </div>
       </Card>
     </div>
+  );
+}
+
+// ─── Delete Loop Modal ────────────────────────────────────────────────────────
+
+function DeleteLoopModal({ loop, onClose, onConfirm }: {
+  loop: Loop; onClose: () => void; onConfirm: () => void;
+}) {
+  return (
+    <DeleteConfirmModal
+      title={`Delete "${loop.name}"?`}
+      message="This will permanently delete the loop and remove all members. This cannot be undone."
+      onClose={onClose}
+      onConfirm={onConfirm}
+    />
   );
 }
 
@@ -424,16 +473,26 @@ function LoopCard({ loop, joined, joinedAt, onJoinLeave, onEdit, onDelete, pendi
 
 // ─── Post Card ────────────────────────────────────────────────────────────────
 
-function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
+function PostCard({ post, onLikePost, onAddComment, onLikeComment, onDeletePost, onEditPost, onDeleteComment, onEditComment }: {
   post: Post;
   onLikePost: (id: number) => void;
   onAddComment: (postId: number, text: string) => void;
   onLikeComment: (commentId: number, postId: number) => void;
+  onDeletePost: (id: number) => void;
+  onEditPost: (id: number, newText: string) => void;
+  onDeleteComment: (commentId: number, postId: number) => void;
+  onEditComment: (commentId: number, postId: number, newText: string) => void;
 }) {
   const [showComments, setShowComments] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [showDeletePostModal, setShowDeletePostModal] = useState(false);
+  const [editingPost, setEditingPost] = useState(false);
+  const [editPostText, setEditPostText] = useState(post.text);
+  const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null);
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editCommentText, setEditCommentText] = useState("");
 
   const handleComment = async () => {
     if (!commentDraft.trim()) return;
@@ -443,23 +502,86 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
     setPosting(false);
   };
 
+  const handleSavePostEdit = () => {
+    if (editPostText.trim()) onEditPost(post.id, editPostText.trim());
+    setEditingPost(false);
+  };
+
+  const handleSaveCommentEdit = (commentId: number) => {
+    if (editCommentText.trim()) onEditComment(commentId, post.id, editCommentText.trim());
+    setEditingCommentId(null);
+  };
+
   return (
     <>
       {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+
+      {/* Delete post modal */}
+      {showDeletePostModal && (
+        <DeleteConfirmModal
+          title="Delete this post?"
+          message="This cannot be undone."
+          onClose={() => setShowDeletePostModal(false)}
+          onConfirm={() => { onDeletePost(post.id); setShowDeletePostModal(false); }}
+        />
+      )}
+
+      {/* Delete comment modal */}
+      {deletingCommentId !== null && (
+        <DeleteConfirmModal
+          title="Delete this comment?"
+          message="This cannot be undone."
+          onClose={() => setDeletingCommentId(null)}
+          onConfirm={() => { onDeleteComment(deletingCommentId, post.id); setDeletingCommentId(null); }}
+        />
+      )}
+
       <Card className="glass border-0 p-4">
         <div className="flex gap-3">
           <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
             {post.user[0].toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 text-sm flex-wrap">
-              <span className="font-semibold">{post.user}</span>
-              <span className="text-muted-foreground">@{post.handle} · {post.time}</span>
-              {post.loop && <Badge variant="secondary" className="text-xs">{post.loop}</Badge>}
-            </div>
-            <p className="text-sm mt-1 leading-relaxed">{post.text}</p>
 
-            {/* Image thumbnail */}
+            {/* Post header */}
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm flex-wrap">
+                <span className="font-semibold">{post.user}</span>
+                <span className="text-muted-foreground">@{post.handle} · {post.time}</span>
+                {post.loop && <Badge variant="secondary" className="text-xs">{post.loop}</Badge>}
+              </div>
+              {post.isMine && (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button onClick={() => { setEditingPost(true); setEditPostText(post.text); }}
+                    className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-lg hover:bg-accent">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => setShowDeletePostModal(true)}
+                    className="text-muted-foreground hover:text-red-500 transition-colors p-1 rounded-lg hover:bg-red-50">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Post text */}
+            {editingPost ? (
+              <div className="mt-2 space-y-2">
+                <textarea value={editPostText} onChange={(e) => setEditPostText(e.target.value)}
+                  className="w-full bg-muted rounded-xl px-3 py-2 text-sm outline-none resize-none min-h-[60px] focus:ring-2 focus:ring-primary/30"
+                  maxLength={500} autoFocus />
+                <div className="flex gap-2">
+                  <Button size="sm" className="gradient-bg border-0" onClick={handleSavePostEdit}>
+                    <Check className="w-3.5 h-3.5 mr-1" /> Save
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setEditingPost(false)}>Cancel</Button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm mt-1 leading-relaxed">{post.text}</p>
+            )}
+
+            {/* Image */}
             {post.image && (
               <div className="mt-3 relative group cursor-pointer rounded-xl overflow-hidden"
                 onClick={() => setLightboxSrc(post.image!)}>
@@ -471,6 +593,7 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
               </div>
             )}
 
+            {/* Actions */}
             <div className="flex items-center gap-6 mt-3 text-muted-foreground">
               <button onClick={() => onLikePost(post.id)}
                 className={`flex items-center gap-1.5 text-xs transition-colors ${post.liked ? "text-red-500" : "hover:text-red-500"}`}>
@@ -487,8 +610,10 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
               </button>
             </div>
 
+            {/* Comments */}
             {showComments && (
               <div className="mt-4 space-y-3">
+                {/* Comment composer */}
                 <div className="flex gap-2 items-start">
                   <div className="w-7 h-7 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-xs flex-shrink-0">?</div>
                   <div className="flex-1 flex gap-2">
@@ -502,6 +627,7 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
                     </button>
                   </div>
                 </div>
+
                 {post.comments.length === 0 ? (
                   <p className="text-xs text-muted-foreground pl-9">No comments yet. Be the first!</p>
                 ) : (
@@ -511,11 +637,52 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
                         {comment.user[0].toUpperCase()}
                       </div>
                       <div className="flex-1 bg-muted rounded-xl px-3 py-2">
-                        <div className="flex items-center gap-2 text-xs mb-1">
-                          <span className="font-semibold">{comment.user}</span>
-                          <span className="text-muted-foreground">@{comment.handle} · {comment.time}</span>
+                        {/* Comment header */}
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="font-semibold">{comment.user}</span>
+                            <span className="text-muted-foreground">@{comment.handle} · {comment.time}</span>
+                          </div>
+                          {/* Edit/delete on your own comments */}
+                          {comment.isMine && (
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <button
+                                onClick={() => { setEditingCommentId(comment.id); setEditCommentText(comment.text); }}
+                                className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded hover:bg-accent/50">
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => setDeletingCommentId(comment.id)}
+                                className="text-muted-foreground hover:text-red-500 transition-colors p-0.5 rounded hover:bg-red-50">
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-xs leading-relaxed">{comment.text}</p>
+
+                        {/* Comment text — editable or display */}
+                        {editingCommentId === comment.id ? (
+                          <div className="space-y-1.5">
+                            <input
+                              value={editCommentText}
+                              onChange={(e) => setEditCommentText(e.target.value)}
+                              className="w-full bg-background rounded-lg px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                              maxLength={300}
+                              autoFocus
+                            />
+                            <div className="flex gap-1.5">
+                              <Button size="sm" className="gradient-bg border-0 h-6 text-xs px-2"
+                                onClick={() => handleSaveCommentEdit(comment.id)}>
+                                <Check className="w-3 h-3 mr-1" /> Save
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-6 text-xs px-2"
+                                onClick={() => setEditingCommentId(null)}>Cancel</Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs leading-relaxed">{comment.text}</p>
+                        )}
+
                         <button onClick={() => onLikeComment(comment.id, post.id)}
                           className={`flex items-center gap-1 text-xs mt-1.5 transition-colors ${comment.liked ? "text-red-500" : "text-muted-foreground hover:text-red-500"}`}>
                           <Heart className={`w-3 h-3 ${comment.liked ? "fill-red-500" : ""}`} />
@@ -536,21 +703,8 @@ function PostCard({ post, onLikePost, onAddComment, onLikeComment }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-const initialLoops: Loop[] = [
-  { id: 1, name: "5AM Run Club", members: 1240, tag: "Running", desc: "Early-morning runners pushing each other.", color: TAG_COLORS.Running, isPrivate: false, createdByMe: false },
-  { id: 2, name: "Mindful Mornings", members: 820, tag: "Mind", desc: "10-minute meditation streaks together.", color: TAG_COLORS.Mind, isPrivate: false, createdByMe: false },
-  { id: 3, name: "Strength 200", members: 450, tag: "Strength", desc: "200 reps a day — bodyweight or weighted.", color: TAG_COLORS.Strength, isPrivate: true, createdByMe: false },
-  { id: 4, name: "Plant-Based Pros", members: 690, tag: "Nutrition", desc: "Daily plant-forward meal logs.", color: TAG_COLORS.Nutrition, isPrivate: false, createdByMe: false },
-  { id: 5, name: "Cycle 100", members: 320, tag: "Cycling", desc: "100km a week, every week.", color: TAG_COLORS.Cycling, isPrivate: false, createdByMe: false },
-  { id: 6, name: "Sleep Stack", members: 510, tag: "Sleep", desc: "Lights out by 10:30pm.", color: TAG_COLORS.Sleep, isPrivate: true, createdByMe: false },
-];
-
-const dummyRequests: JoinRequest[] = [
-  { id: 1, loopId: 3, loopName: "Strength 200", user: "Alex Kim", handle: "alexkim", requestedAt: "2 hours ago" },
-  { id: 2, loopId: 6, loopName: "Sleep Stack", user: "Jordan Lee", handle: "jordanlee", requestedAt: "5 hours ago" },
-];
-
 export default function LoopsPage() {
+  const [user] = useState<{ first_name?: string; email?: string } | null>(() => loadUser());
   const [loops, setLoops] = useState<Loop[]>(initialLoops);
   const [joinedMap, setJoinedMap] = useState<Record<number, string>>({});
   const [pendingIds, setPendingIds] = useState<number[]>([]);
@@ -568,37 +722,32 @@ export default function LoopsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTag, setActiveTag] = useState("All");
   const [feedFilter, setFeedFilter] = useState<"all" | "myloops">("all");
-  const [user, setUser] = useState<{ first_name?: string; email?: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const stored = localStorage.getItem("user");
-    if (stored) {
-      try { setUser(JSON.parse(stored)); } catch { /* ignore */ }
-    }
-  }, []);
+  const myHandle = user?.email?.split("@")[0] || "";
 
   const initials = user?.first_name
     ? user.first_name[0].toUpperCase()
     : user?.email?.[0].toUpperCase() || "?";
 
-  const fetchPosts = async () => {
-    try {
-      const token = localStorage.getItem("access_token");
-      const res = await fetch("http://127.0.0.1:8000/api/posts/", {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (Array.isArray(data)) setPosts(data);
-    } catch { /* keep showing dummy posts */ }
-  };
-
   useEffect(() => {
+    let cancelled = false;
+    const fetchPosts = async () => {
+      try {
+        const token = localStorage.getItem("access_token");
+        const res = await fetch("http://127.0.0.1:8000/api/posts/", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        // ── Key fix: tag isMine on every post/comment so buttons never disappear ──
+        if (!cancelled && Array.isArray(data)) setPosts(tagMine(data, myHandle));
+      } catch { /* keep showing current posts */ }
+    };
     fetchPosts();
     const interval = setInterval(fetchPosts, 15000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [myHandle]);
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -618,17 +767,15 @@ export default function LoopsPage() {
     setPosting(true);
     setPostError("");
 
-    // Build local post as fallback
     const localPost: Post = {
       id: Date.now(),
       user: user?.first_name || "You",
-      handle: user?.email?.split("@")[0] || "you",
+      handle: myHandle,
       time: "just now",
       text: draft,
-      likes: 0,
-      liked: false,
-      comments: [],
+      likes: 0, liked: false, comments: [],
       image: imagePreview,
+      isMine: true,
     };
 
     try {
@@ -639,13 +786,11 @@ export default function LoopsPage() {
           formData.append("text", draft);
           formData.append("image", imageFile);
           const res = await fetch("http://127.0.0.1:8000/api/posts/create/", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-            body: formData,
+            method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData,
           });
           if (res.ok) {
             const data = await res.json();
-            setPosts((prev) => [data, ...prev]);
+            setPosts((prev) => [{ ...data, isMine: true }, ...prev]);
             setDraft(""); setImagePreview(null); setImageFile(null);
             setPosting(false); return;
           }
@@ -657,17 +802,66 @@ export default function LoopsPage() {
           });
           if (res.ok) {
             const data = await res.json();
-            setPosts((prev) => [data, ...prev]);
+            setPosts((prev) => [{ ...data, isMine: true }, ...prev]);
             setDraft(""); setPosting(false); return;
           }
         }
       }
-    } catch { /* network error — fall through to local */ }
+    } catch { /* fall through to local */ }
 
-    // Backend not ready — post locally
     setPosts((prev) => [localPost, ...prev]);
     setDraft(""); setImagePreview(null); setImageFile(null);
     setPosting(false);
+  };
+
+  const handleDeletePost = async (postId: number) => {
+    try {
+      const token = localStorage.getItem("access_token");
+      await fetch(`http://127.0.0.1:8000/api/posts/${postId}/delete/`, {
+        method: "DELETE", headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch { /* backend not ready */ }
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+  };
+
+  const handleEditPost = async (postId: number, newText: string) => {
+    try {
+      const token = localStorage.getItem("access_token");
+      await fetch(`http://127.0.0.1:8000/api/posts/${postId}/edit/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text: newText }),
+      });
+    } catch { /* backend not ready */ }
+    setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, text: newText } : p));
+  };
+
+  const handleDeleteComment = async (commentId: number, postId: number) => {
+    try {
+      const token = localStorage.getItem("access_token");
+      await fetch(`http://127.0.0.1:8000/api/comments/${commentId}/delete/`, {
+        method: "DELETE", headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch { /* backend not ready */ }
+    setPosts((prev) => prev.map((p) =>
+      p.id === postId ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) } : p
+    ));
+  };
+
+  const handleEditComment = async (commentId: number, postId: number, newText: string) => {
+    try {
+      const token = localStorage.getItem("access_token");
+      await fetch(`http://127.0.0.1:8000/api/comments/${commentId}/edit/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text: newText }),
+      });
+    } catch { /* backend not ready */ }
+    setPosts((prev) => prev.map((p) =>
+      p.id === postId
+        ? { ...p, comments: p.comments.map((c) => c.id === commentId ? { ...c, text: newText } : c) }
+        : p
+    ));
   };
 
   const handleJoinLeave = (id: number) => {
@@ -680,6 +874,13 @@ export default function LoopsPage() {
       setLoops((prev) => prev.map((l) => l.id === id ? { ...l, members: l.members - 1 } : l));
     } else if (loop.isPrivate) {
       setPendingIds((prev) => [...prev, id]);
+      const newRequest: JoinRequest = {
+        id: Date.now(), loopId: id, loopName: loop.name,
+        user: user?.first_name || "You",
+        handle: myHandle,
+        requestedAt: "just now",
+      };
+      setRequests((prev) => [...prev, newRequest]);
     } else {
       setJoinedMap((prev) => ({ ...prev, [id]: new Date().toISOString() }));
       setLoops((prev) => prev.map((l) => l.id === id ? { ...l, members: l.members + 1 } : l));
@@ -719,6 +920,7 @@ export default function LoopsPage() {
       });
     } catch { /* backend not ready */ }
     setRequests((prev) => prev.filter((r) => r.id !== req.id));
+    setPendingIds((prev) => prev.filter((id) => id !== req.loopId));
     setLoops((prev) => prev.map((l) => l.id === req.loopId ? { ...l, members: l.members + 1 } : l));
   };
 
@@ -730,6 +932,7 @@ export default function LoopsPage() {
       });
     } catch { /* backend not ready */ }
     setRequests((prev) => prev.filter((r) => r.id !== req.id));
+    setPendingIds((prev) => prev.filter((id) => id !== req.loopId));
   };
 
   const handleLikePost = async (postId: number) => {
@@ -755,12 +958,13 @@ export default function LoopsPage() {
         body: JSON.stringify({ text }),
       });
       const data = await res.json();
-      if (res.ok) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, comments: [...p.comments, data] } : p));
+      if (res.ok) setPosts((prev) => prev.map((p) =>
+        p.id === postId ? { ...p, comments: [...p.comments, { ...data, isMine: true }] } : p
+      ));
     } catch {
       const localComment: Comment = {
         id: Date.now(), user: user?.first_name || "You",
-        handle: user?.email?.split("@")[0] || "you",
-        text, likes: 0, liked: false, time: "just now",
+        handle: myHandle, text, likes: 0, liked: false, time: "just now", isMine: true,
       };
       setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, comments: [...p.comments, localComment] } : p));
     }
@@ -884,7 +1088,7 @@ export default function LoopsPage() {
               </button>
             </div>
 
-            {/* ── Post Composer ── */}
+            {/* Post Composer */}
             <Card className="glass border-0 p-4">
               <div className="flex gap-3">
                 <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
@@ -896,25 +1100,19 @@ export default function LoopsPage() {
                     placeholder="Share your progress..."
                     className="w-full bg-transparent text-sm outline-none resize-none min-h-[60px]"
                     maxLength={500} />
-
-                  {/* Image preview */}
                   {imagePreview && (
                     <div className="relative mt-2 rounded-xl overflow-hidden inline-block">
-                      <img src={imagePreview} alt="Preview"
-                        className="max-h-48 max-w-full rounded-xl object-cover" />
+                      <img src={imagePreview} alt="Preview" className="max-h-48 max-w-full rounded-xl object-cover" />
                       <button onClick={handleRemoveImage}
                         className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white transition-colors">
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   )}
-
                   {postError && <p className="text-xs text-red-500 mt-2">{postError}</p>}
-
                   <div className="flex items-center justify-between mt-2">
                     <div className="flex items-center gap-2">
-                      <input ref={fileInputRef} type="file" accept="image/*"
-                        className="hidden" onChange={handleImageSelect} />
+                      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
                       <button onClick={() => fileInputRef.current?.click()}
                         className="text-muted-foreground hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-accent"
                         title="Attach image">
@@ -951,7 +1149,11 @@ export default function LoopsPage() {
                 <PostCard key={p.id} post={p}
                   onLikePost={handleLikePost}
                   onAddComment={handleAddComment}
-                  onLikeComment={handleLikeComment} />
+                  onLikeComment={handleLikeComment}
+                  onDeletePost={handleDeletePost}
+                  onEditPost={handleEditPost}
+                  onDeleteComment={handleDeleteComment}
+                  onEditComment={handleEditComment} />
               ))
             )}
           </TabsContent>
