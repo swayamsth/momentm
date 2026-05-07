@@ -256,8 +256,14 @@ function Dashboard() {
                       <Input
                         type="number"
                         min={1}
-                        value={duration}
-                        onChange={(e) => setDuration(Number(e.target.value))}
+                        value={duration || ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val !== "") setDuration(parseInt(val, 10) || 1);
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value === "") setDuration(1);
+                        }}
                         required
                       />
                     </div>
@@ -266,8 +272,14 @@ function Dashboard() {
                       <Input
                         type="number"
                         min={0}
-                        value={steps}
-                        onChange={(e) => setSteps(Number(e.target.value))}
+                        value={steps || ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val !== "") setSteps(parseInt(val, 10) || 0);
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value === "") setSteps(0);
+                        }}
                       />
                     </div>
                     <div className="col-span-2">
@@ -275,8 +287,14 @@ function Dashboard() {
                       <Input
                         type="number"
                         min={0}
-                        value={calories}
-                        onChange={(e) => setCalories(Number(e.target.value))}
+                        value={calories || ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val !== "") setCalories(parseInt(val, 10) || 0);
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value === "") setCalories(0);
+                        }}
                       />
                     </div>
                   </div>
