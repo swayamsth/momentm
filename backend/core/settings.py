@@ -147,3 +147,6 @@ EMAIL_USE_SSL = False
 EMAIL_HOST_USER = 'adminmomentm@gmail.com'
 EMAIL_HOST_PASSWORD = 'ibca fsho gvxl wdlm'
 DEFAULT_FROM_EMAIL = 'adminmomentm@gmail.com'
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'

@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import SignupSerializer
-from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog
+from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership
 
 
 def get_tokens_for_user(user):
@@ -184,7 +184,7 @@ def forgot_password_view(request):
         user = User.objects.get(email=email)
         PasswordResetToken.objects.filter(user=user).delete()
         reset_token = PasswordResetToken.objects.create(user=user)
-        reset_link = f"http://localhost:8080/reset-password?token={reset_token.token}"
+        reset_link = f"http://localhost:3000/reset-password?token={reset_token.token}"
         send_mail(
             subject='Reset your Momentum password',
             message=f'Click the link below to reset your password:\n\n{reset_link}\n\nThis link expires in 15 minutes.\n\nIf you did not request this, ignore this email.',
@@ -222,34 +222,136 @@ def reset_password_view(request):
         return Response({'error': 'Invalid or expired reset link.'}, status=status.HTTP_400_BAD_REQUEST)
 
 
+# ─── Helper ───────────────────────────────────────────────────────────────────
+
+def get_user_loop_ids(user):
+    membership_ids = list(
+        LoopMembership.objects.filter(
+            user=user, status='approved'
+        ).values_list('loop_id', flat=True)
+    )
+    created_ids = list(
+        Loop.objects.filter(created_by=user).values_list('id', flat=True)
+    )
+    return list(set(membership_ids + created_ids))
+
+
+def serialize_post(post, request_user=None):
+    full_name = f"{post.user.first_name} {post.user.last_name}".strip()
+    comments = []
+    for comment in post.post_comments.all():
+        comment_name = f"{comment.user.first_name} {comment.user.last_name}".strip()
+        comments.append({
+            'id': comment.id,
+            'user': comment_name or comment.user.email,
+            'handle': comment.user.email.split('@')[0],
+            'text': comment.text,
+            'likes': comment.likes.count(),
+            'liked': request_user in comment.likes.all() if request_user and request_user.is_authenticated else False,
+            'time': comment.created_at.strftime('%b %d, %H:%M'),
+            'is_mine': comment.user == request_user if request_user else False,
+        })
+
+    return {
+        'id': post.id,
+        'user': full_name or post.user.email,
+        'handle': post.user.email.split('@')[0],
+        'text': post.text,
+        'image': None,
+        'loop': post.loop.name if post.loop else None,
+        'loop_id': post.loop.id if post.loop else None,
+        'loop_is_private': post.loop.is_private if post.loop else False,
+        'likes': post.likes.count(),
+        'liked': request_user in post.likes.all() if request_user and request_user.is_authenticated else False,
+        'time': post.created_at.strftime('%b %d, %H:%M'),
+        'is_mine': post.user == request_user if request_user else False,
+        'comments': comments,
+    }
+
+
+# ─── Posts ────────────────────────────────────────────────────────────────────
+
 @api_view(['GET'])
 def get_posts_view(request):
-    posts = Post.objects.select_related('user').prefetch_related('post_comments__user', 'post_comments__likes').all()[:50]
+    all_posts = Post.objects.select_related('user', 'loop').prefetch_related(
+        'post_comments__user', 'post_comments__likes', 'likes'
+    ).all()[:100]
+
+    user_loop_ids = []
+    if request.user.is_authenticated:
+        user_loop_ids = get_user_loop_ids(request.user)
+
+    data = []
+    for post in all_posts:
+        if post.loop and post.loop.is_private:
+            if not request.user.is_authenticated or post.loop.id not in user_loop_ids:
+                continue
+        serialized = serialize_post(post, request.user)
+        if post.image:
+            serialized['image'] = request.build_absolute_uri(post.image.url)
+        data.append(serialized)
+
+    return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_my_posts_view(request):
+    loop_id = request.query_params.get('loop_id')
+    user_loop_ids = get_user_loop_ids(request.user)
+
+    if loop_id:
+        if int(loop_id) not in user_loop_ids:
+            return Response({'error': 'Not a member of this loop.'}, status=status.HTTP_403_FORBIDDEN)
+        # Return ALL posts in the loop, not just the user's
+        posts = Post.objects.filter(
+            loop_id=loop_id
+        ).select_related('user', 'loop').prefetch_related(
+            'post_comments__user', 'post_comments__likes', 'likes'
+        )
+    else:
+        # Return only the logged-in user's posts across all loops
+        posts = Post.objects.filter(
+            user=request.user
+        ).select_related('user', 'loop').prefetch_related(
+            'post_comments__user', 'post_comments__likes', 'likes'
+        )
+
     data = []
     for post in posts:
-        full_name = f"{post.user.first_name} {post.user.last_name}".strip()
-        comments = []
-        for comment in post.post_comments.all():
-            comment_name = f"{comment.user.first_name} {comment.user.last_name}".strip()
-            comments.append({
-                'id': comment.id,
-                'user': comment_name or comment.user.email,
-                'handle': comment.user.email.split('@')[0],
-                'text': comment.text,
-                'likes': comment.likes.count(),
-                'liked': request.user in comment.likes.all() if request.user.is_authenticated else False,
-                'time': comment.created_at.strftime('%b %d, %H:%M'),
-            })
-        data.append({
-            'id': post.id,
-            'user': full_name or post.user.email,
-            'handle': post.user.email.split('@')[0],
-            'text': post.text,
-            'likes': post.likes.count(),
-            'liked': request.user in post.likes.all() if request.user.is_authenticated else False,
-            'time': post.created_at.strftime('%b %d, %H:%M'),
-            'comments': comments,
-        })
+        serialized = serialize_post(post, request.user)
+        if post.image:
+            serialized['image'] = request.build_absolute_uri(post.image.url)
+        data.append(serialized)
+
+    return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_loop_posts_view(request, loop_id):
+    user_loop_ids = get_user_loop_ids(request.user)
+
+    try:
+        loop = Loop.objects.get(id=loop_id)
+    except Loop.DoesNotExist:
+        return Response({'error': 'Loop not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if loop.is_private and loop_id not in user_loop_ids:
+        return Response({'error': 'Not a member of this loop.'}, status=status.HTTP_403_FORBIDDEN)
+
+    # Return ALL posts from ALL members of the loop
+    posts = Post.objects.filter(loop=loop).select_related('user', 'loop').prefetch_related(
+        'post_comments__user', 'post_comments__likes', 'likes'
+    )
+
+    data = []
+    for post in posts:
+        serialized = serialize_post(post, request.user)
+        if post.image:
+            serialized['image'] = request.build_absolute_uri(post.image.url)
+        data.append(serialized)
+
     return Response(data)
 
 
@@ -257,22 +359,74 @@ def get_posts_view(request):
 @permission_classes([IsAuthenticated])
 def create_post_view(request):
     text = request.data.get('text', '').strip()
-    if not text:
+    loop_id = request.data.get('loop_id')
+    image = request.FILES.get('image')
+
+    if not text and not image:
         return Response({'error': 'Post cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
     if len(text) > 500:
         return Response({'error': 'Post cannot exceed 500 characters.'}, status=status.HTTP_400_BAD_REQUEST)
-    post = Post.objects.create(user=request.user, text=text)
+
+    loop = None
+    if loop_id:
+        try:
+            loop = Loop.objects.get(id=loop_id)
+            user_loop_ids = get_user_loop_ids(request.user)
+            if loop.id not in user_loop_ids:
+                return Response({'error': 'You must be a member to post in this loop.'}, status=status.HTTP_403_FORBIDDEN)
+        except Loop.DoesNotExist:
+            pass
+
+    post = Post.objects.create(user=request.user, text=text, loop=loop, image=image)
     full_name = f"{request.user.first_name} {request.user.last_name}".strip()
+
     return Response({
         'id': post.id,
         'user': full_name or request.user.email,
         'handle': request.user.email.split('@')[0],
         'text': post.text,
+        'image': request.build_absolute_uri(post.image.url) if post.image else None,
+        'loop': loop.name if loop else None,
+        'loop_id': loop.id if loop else None,
+        'loop_is_private': loop.is_private if loop else False,
         'likes': 0,
         'liked': False,
+        'is_mine': True,
         'time': 'just now',
         'comments': [],
     }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_post_view(request, post_id):
+    try:
+        post = Post.objects.get(id=post_id)
+        if post.user != request.user:
+            return Response({'error': 'You can only delete your own posts.'}, status=status.HTTP_403_FORBIDDEN)
+        post.delete()
+        return Response({'message': 'Post deleted.'})
+    except Post.DoesNotExist:
+        return Response({'error': 'Post not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def edit_post_view(request, post_id):
+    try:
+        post = Post.objects.get(id=post_id)
+        if post.user != request.user:
+            return Response({'error': 'You can only edit your own posts.'}, status=status.HTTP_403_FORBIDDEN)
+        text = request.data.get('text', '').strip()
+        if not text:
+            return Response({'error': 'Post cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(text) > 500:
+            return Response({'error': 'Post cannot exceed 500 characters.'}, status=status.HTTP_400_BAD_REQUEST)
+        post.text = text
+        post.save()
+        return Response({'id': post.id, 'text': post.text, 'message': 'Post updated.'})
+    except Post.DoesNotExist:
+        return Response({'error': 'Post not found.'}, status=status.HTTP_404_NOT_FOUND)
 
 
 @api_view(['POST'])
@@ -308,6 +462,7 @@ def create_comment_view(request, post_id):
             'text': comment.text,
             'likes': 0,
             'liked': False,
+            'is_mine': True,
             'time': 'just now',
         }, status=status.HTTP_201_CREATED)
     except Post.DoesNotExist:
@@ -329,6 +484,270 @@ def like_comment_view(request, comment_id):
     except Comment.DoesNotExist:
         return Response({'error': 'Comment not found.'}, status=status.HTTP_404_NOT_FOUND)
 
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def edit_comment_view(request, comment_id):
+    try:
+        comment = Comment.objects.get(id=comment_id)
+        if comment.user != request.user:
+            return Response({'error': 'You can only edit your own comments.'}, status=status.HTTP_403_FORBIDDEN)
+        text = request.data.get('text', '').strip()
+        if not text:
+            return Response({'error': 'Comment cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
+        comment.text = text
+        comment.save()
+        return Response({'id': comment.id, 'text': comment.text, 'message': 'Comment updated.'})
+    except Comment.DoesNotExist:
+        return Response({'error': 'Comment not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_comment_view(request, comment_id):
+    try:
+        comment = Comment.objects.get(id=comment_id)
+        if comment.user != request.user:
+            return Response({'error': 'You can only delete your own comments.'}, status=status.HTTP_403_FORBIDDEN)
+        comment.delete()
+        return Response({'message': 'Comment deleted.'})
+    except Comment.DoesNotExist:
+        return Response({'error': 'Comment not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+# ─── Loops ────────────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+def get_loops_view(request):
+    loops = Loop.objects.select_related('created_by').prefetch_related('memberships').all()
+    data = []
+    for loop in loops:
+        member_count = loop.memberships.filter(status='approved').count() + 1
+        membership = None
+        if request.user.is_authenticated:
+            try:
+                membership = LoopMembership.objects.get(loop=loop, user=request.user)
+            except LoopMembership.DoesNotExist:
+                pass
+
+        data.append({
+            'id': loop.id,
+            'name': loop.name,
+            'desc': loop.description,
+            'tag': loop.tag,
+            'is_private': loop.is_private,
+            'members': member_count,
+            'created_by_me': loop.created_by == request.user if request.user.is_authenticated else False,
+            'joined': membership.status == 'approved' if membership else loop.created_by == request.user,
+            'pending': membership.status == 'pending' if membership else False,
+            'joined_at': membership.joined_at.isoformat() if membership and membership.status == 'approved' else (
+                loop.created_at.isoformat() if loop.created_by == request.user else None
+            ),
+        })
+    return Response(data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_loop_view(request):
+    name = request.data.get('name', '').strip()
+    description = request.data.get('description', '').strip()
+    tag = request.data.get('tag', 'Other')
+    is_private = request.data.get('is_private', False)
+
+    if not name:
+        return Response({'error': 'Loop name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Limit: max 3 loops per user
+    user_loop_count = Loop.objects.filter(created_by=request.user).count()
+    if user_loop_count >= 3:
+        return Response({'error': 'LOOP_LIMIT_REACHED'}, status=status.HTTP_403_FORBIDDEN)
+
+    loop = Loop.objects.create(
+        name=name,
+        description=description,
+        tag=tag,
+        is_private=is_private,
+        created_by=request.user,
+    )
+
+    return Response({
+        'id': loop.id,
+        'name': loop.name,
+        'desc': loop.description,
+        'tag': loop.tag,
+        'is_private': loop.is_private,
+        'members': 1,
+        'created_by_me': True,
+        'joined': True,
+        'pending': False,
+        'joined_at': loop.created_at.isoformat(),
+    }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def join_loop_view(request, loop_id):
+    try:
+        loop = Loop.objects.get(id=loop_id)
+    except Loop.DoesNotExist:
+        return Response({'error': 'Loop not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if loop.created_by == request.user:
+        return Response({'error': 'You are the creator of this loop.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    membership, created = LoopMembership.objects.get_or_create(
+        loop=loop,
+        user=request.user,
+        defaults={'status': 'pending' if loop.is_private else 'approved'}
+    )
+
+    if not created:
+        return Response({'error': 'Already a member or request pending.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({
+        'status': membership.status,
+        'message': 'Join request sent.' if loop.is_private else 'Joined successfully.',
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def leave_loop_view(request, loop_id):
+    try:
+        loop = Loop.objects.get(id=loop_id)
+        membership = LoopMembership.objects.get(loop=loop, user=request.user)
+        membership.delete()
+        return Response({'message': 'Left loop successfully.'})
+    except Loop.DoesNotExist:
+        return Response({'error': 'Loop not found.'}, status=status.HTTP_404_NOT_FOUND)
+    except LoopMembership.DoesNotExist:
+        return Response({'error': 'You are not a member.'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def edit_loop_view(request, loop_id):
+    try:
+        loop = Loop.objects.get(id=loop_id, created_by=request.user)
+    except Loop.DoesNotExist:
+        return Response({'error': 'Loop not found or not authorized.'}, status=status.HTTP_404_NOT_FOUND)
+
+    loop.name = request.data.get('name', loop.name)
+    loop.description = request.data.get('description', loop.description)
+    loop.tag = request.data.get('tag', loop.tag)
+    loop.is_private = request.data.get('is_private', loop.is_private)
+    loop.save()
+
+    return Response({'message': 'Loop updated.'})
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_loop_view(request, loop_id):
+    try:
+        loop = Loop.objects.get(id=loop_id, created_by=request.user)
+        loop.delete()
+        return Response({'message': 'Loop deleted.'})
+    except Loop.DoesNotExist:
+        return Response({'error': 'Loop not found or not authorized.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_join_requests_view(request):
+    my_loops = Loop.objects.filter(created_by=request.user)
+    requests_qs = LoopMembership.objects.filter(
+        loop__in=my_loops, status='pending'
+    ).select_related('user', 'loop')
+
+    data = [{
+        'id': req.id,
+        'loop_id': req.loop.id,
+        'loop_name': req.loop.name,
+        'user': f"{req.user.first_name} {req.user.last_name}".strip() or req.user.email,
+        'handle': req.user.email.split('@')[0],
+        'requested_at': req.joined_at.strftime('%b %d, %H:%M'),
+    } for req in requests_qs]
+
+    return Response(data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def approve_request_view(request, membership_id):
+    try:
+        membership = LoopMembership.objects.get(id=membership_id, loop__created_by=request.user)
+        membership.status = 'approved'
+        membership.save()
+        return Response({'message': 'Request approved.'})
+    except LoopMembership.DoesNotExist:
+        return Response({'error': 'Request not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def deny_request_view(request, membership_id):
+    try:
+        membership = LoopMembership.objects.get(id=membership_id, loop__created_by=request.user)
+        membership.delete()
+        return Response({'message': 'Request denied.'})
+    except LoopMembership.DoesNotExist:
+        return Response({'error': 'Request not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_notifications_view(request):
+    notifications = []
+
+    # Join requests on private loops
+    my_private_loops = Loop.objects.filter(created_by=request.user, is_private=True)
+    pending = LoopMembership.objects.filter(
+        loop__in=my_private_loops, status='pending'
+    ).select_related('user', 'loop').order_by('-joined_at')[:20]
+
+    for req in pending:
+        full_name = f"{req.user.first_name} {req.user.last_name}".strip() or req.user.email
+        notifications.append({
+            'id': f'req_{req.id}',
+            'type': 'join_request',
+            'message': f'{full_name} wants to join {req.loop.name}',
+            'loop_id': req.loop.id,
+            'loop_name': req.loop.name,
+            'user': full_name,
+            'handle': req.user.email.split('@')[0],
+            'membership_id': req.id,
+            'time': req.joined_at.strftime('%b %d, %H:%M'),
+            'read': False,
+        })
+
+    # New approved members on public loops
+    my_public_loops = Loop.objects.filter(created_by=request.user, is_private=False)
+    approved = LoopMembership.objects.filter(
+        loop__in=my_public_loops, status='approved'
+    ).select_related('user', 'loop').order_by('-joined_at')[:20]
+
+    for member in approved:
+        full_name = f"{member.user.first_name} {member.user.last_name}".strip() or member.user.email
+        notifications.append({
+            'id': f'mem_{member.id}',
+            'type': 'new_member',
+            'message': f'{full_name} joined {member.loop.name}',
+            'loop_id': member.loop.id,
+            'loop_name': member.loop.name,
+            'user': full_name,
+            'handle': member.user.email.split('@')[0],
+            'time': member.joined_at.strftime('%b %d, %H:%M'),
+            'read': False,
+        })
+
+    notifications.sort(key=lambda x: x['time'], reverse=True)
+
+    return Response(notifications[:30])
+
+
+# ─── Activities ───────────────────────────────────────────────────────────────
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
