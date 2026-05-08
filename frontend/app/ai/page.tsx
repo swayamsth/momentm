@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sparkles, TrendingUp, Heart, Brain, Moon, Utensils, Send } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Area, AreaChart } from "recharts";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 const prediction = Array.from({ length: 30 }, (_, i) => ({
   day: i + 1,
@@ -20,8 +20,49 @@ const recs = [
   { icon: Brain, title: "Try a 10-min mindfulness session", body: "Stress markers peak Tuesdays. A short midday session has worked well for similar profiles.", tag: "Mind", color: "oklch(0.6 0.22 255)" },
 ];
 
+type Message = { role: "user" | "assistant"; content: string };
+
 export default function AIPage() {
   const [msg, setMsg] = useState("");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleSendMessage = async () => {
+    if (!msg.trim()) return;
+
+    const newUserMessage: Message = { role: "user", content: msg };
+    const updatedMessages = [...messages, newUserMessage];
+    setMessages(updatedMessages);
+    setMsg("");
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: updatedMessages }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to get AI response");
+      }
+
+      const data = await response.json();
+      const aiMessage: Message = { role: "assistant", content: data.text || "Sorry, I couldn't generate a response." };
+      setMessages([...updatedMessages, aiMessage]);
+    } catch (error) {
+      console.error("Chat error:", error);
+      const errorMessage: Message = { role: "assistant", content: "⚠️ Error connecting to AI. Check your API configuration." };
+      setMessages([...updatedMessages, errorMessage]);
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <AppShell>
       <div className="space-y-6">
@@ -88,22 +129,48 @@ export default function AIPage() {
 
         <Card className="glass-strong border-0 p-6">
           <h3 className="font-semibold mb-4 flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" />Ask Momentm AI</h3>
-          <div className="space-y-3 mb-4">
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full gradient-bg flex items-center justify-center text-primary-foreground text-xs font-semibold flex-shrink-0">AI</div>
-              <div className="glass rounded-2xl rounded-tl-sm p-3 text-sm max-w-md">
-                Hey — based on your last 7 days, I'd recommend an easy run today. Your HRV is back to baseline.
+          <div className="space-y-3 mb-4 max-h-96 overflow-y-auto">
+            {messages.length === 0 && (
+              <div className="flex gap-3">
+                <div className="w-8 h-8 rounded-full gradient-bg flex items-center justify-center text-primary-foreground text-xs font-semibold flex-shrink-0">AI</div>
+                <div className="glass rounded-2xl rounded-tl-sm p-3 text-sm max-w-md">
+                  What should we do today?
+                </div>
               </div>
-            </div>
+            )}
+            {messages.map((m, i) => (
+              <div key={i} className={`flex gap-3 ${m.role === "user" ? "justify-end" : ""}`}>
+                {m.role === "assistant" && (
+                  <div className="w-8 h-8 rounded-full gradient-bg flex items-center justify-center text-primary-foreground text-xs font-semibold flex-shrink-0">AI</div>
+                )}
+                <div className={`rounded-2xl p-4 text-sm ${m.role === "user" ? "gradient-bg text-primary-foreground rounded-tr-sm max-w-2xl" : "glass rounded-tl-sm max-w-3xl"}`}>
+                  <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                </div>
+                {m.role === "user" && (
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 bg-muted">U</div>
+                )}
+              </div>
+            ))}
+            {loading && (
+              <div className="flex gap-3">
+                <div className="w-8 h-8 rounded-full gradient-bg flex items-center justify-center text-primary-foreground text-xs font-semibold flex-shrink-0">AI</div>
+                <div className="glass rounded-2xl rounded-tl-sm p-3 text-sm">
+                  <span className="animate-pulse">Thinking...</span>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
           </div>
           <div className="flex gap-2">
             <input
               value={msg}
               onChange={(e) => setMsg(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !loading && handleSendMessage()}
               placeholder="Ask anything about your training..."
               className="flex-1 glass rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+              disabled={loading}
             />
-            <Button onClick={() => setMsg("")} className="gradient-bg"><Send className="w-4 h-4" /></Button>
+            <Button onClick={handleSendMessage} disabled={loading || !msg.trim()} className="gradient-bg"><Send className="w-4 h-4" /></Button>
           </div>
         </Card>
       </div>
