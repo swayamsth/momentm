@@ -1,7 +1,6 @@
 from pathlib import Path
 import os
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-o42m5%#9=$3ycnn2og#&yx1qf773jb^pem29@kfs5e1rqwnvel'
@@ -59,7 +58,7 @@ DATABASES = {
         'NAME': 'postgres',
         'USER': 'postgres.poxodxwrdhyatvefzbij',
         'PASSWORD': 'poxodxwrdhyatvefzbij/database/settings',
-        'HOST': 'aws-1-ap-southeast-1.pooler.supabase.com',
+        'HOST': 'db.poxodxwrdhyatvefzbij.supabase.co',
         'PORT': '5432',
     }
 }
@@ -98,7 +97,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:8080",
     "http://127.0.0.1:8080",
+    "http://frontend:3000",
 ]
+
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOW_METHODS = [
@@ -123,7 +124,7 @@ CORS_ALLOW_HEADERS = [
 ]
 
 REST_FRAMEWORK = {
-      'DEFAULT_AUTHENTICATION_CLASSES': (
+    'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
 }
@@ -137,7 +138,6 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
-
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
