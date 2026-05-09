@@ -109,7 +109,6 @@ function NotificationBell() {
   const handleOpen = () => {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
-      // Position above the button, aligned to its left edge
       setDropdownPos({
         bottom: window.innerHeight - rect.top + 8,
         left: Math.max(8, rect.left),
@@ -156,7 +155,6 @@ function NotificationBell() {
         )}
       </button>
 
-      {/* Dropdown — fixed position, above the bell, solid background */}
       {open && (
         <div
           ref={dropdownRef}
@@ -168,11 +166,9 @@ function NotificationBell() {
             zIndex: 9999,
           }}
         >
-          {/* Solid card background — no transparency */}
           <div style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
             className="rounded-2xl overflow-hidden shadow-2xl">
 
-            {/* Header */}
             <div className="flex items-center justify-between px-4 py-3"
               style={{ borderBottom: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2">
@@ -191,7 +187,6 @@ function NotificationBell() {
               )}
             </div>
 
-            {/* List */}
             <div className="max-h-80 overflow-y-auto">
               {notifications.length === 0 ? (
                 <div className="py-10 text-center">
@@ -221,7 +216,6 @@ function NotificationBell() {
               )}
             </div>
 
-            {/* Footer */}
             {notifications.length > 0 && (
               <div className="px-4 py-2.5 text-center"
                 style={{ borderTop: "1px solid var(--border)" }}>
@@ -300,12 +294,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          {/* Bell in sidebar footer */}
-          <div className="flex items-center justify-between mb-3 px-1">
-            <span className="text-xs text-muted-foreground font-medium">Notifications</span>
-            <NotificationBell />
-          </div>
-
+          {/* ── User profile — NO bell here ── */}
           <div className="glass rounded-xl p-3 flex items-center gap-3">
             <div className="w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
               {initials}
@@ -332,7 +321,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="font-semibold">Momentm</span>
           </Link>
           <div className="flex items-center gap-2">
-            <NotificationBell />
             <button onClick={() => setOpen(!open)} className="p-2 rounded-lg hover:bg-accent">
               {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>

@@ -150,3 +150,7 @@ DEFAULT_FROM_EMAIL = 'adminmomentm@gmail.com'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+SUPABASE_URL = "https://poxodxwrdhyatvefzbij.supabase.co"
+SUPABASE_KEY = "sb_publishable_6wbuEV-5dX0xP8LV19dsLA_7pEteAnP"
+SUPABASE_BUCKET = "post-images"

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 
-const API = "http://127.0.0.1:8000/api";
+const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
 
 const PRESET_TAGS = ["Running", "Mind", "Strength", "Nutrition", "Cycling", "Recovery", "Sleep", "Other"];
 const ALL_TAGS = ["All", ...PRESET_TAGS];
@@ -103,7 +103,7 @@ interface Post {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   const token = localStorage.getItem("access_token");
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
@@ -113,7 +113,6 @@ function getMemberSince(dateStr: string) {
   return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
-// ── Notification persistence using localStorage ──
 const SEEN_NOTIF_KEY = "momentm_seen_notif_ids";
 
 function getSeenIds(): Set<string> {
@@ -167,12 +166,13 @@ function UpgradeModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ─── Loop Detail Modal (for clicking loop badge on post) ──────────────────────
+// ─── Loop Detail Modal ────────────────────────────────────────────────────────
 
-function LoopDetailModal({ loop, onClose, onJoin }: {
+function LoopDetailModal({ loop, onClose, onJoin, onViewLoop }: {
   loop: Loop;
   onClose: () => void;
   onJoin: (id: number, action: "join" | "leave") => void;
+  onViewLoop: (loop: Loop) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [justJoined, setJustJoined] = useState(false);
@@ -182,7 +182,7 @@ function LoopDetailModal({ loop, onClose, onJoin }: {
     const action = loop.joined ? "leave" : "join";
     try {
       await fetch(`${API}/loops/${loop.id}/${action}/`, {
-        method: "POST", headers: { ...authHeaders() },
+        method: "POST", headers: authHeaders(),
       });
     } catch { }
     onJoin(loop.id, action);
@@ -234,6 +234,7 @@ function LoopDetailModal({ loop, onClose, onJoin }: {
         )}
 
         <div className="space-y-2">
+          {/* Join / Leave / Admin / Pending button */}
           {loop.created_by_me ? (
             <div className="glass rounded-xl p-3 text-center">
               <Badge className="gradient-bg text-primary-foreground border-0">You are the Admin</Badge>
@@ -252,6 +253,17 @@ function LoopDetailModal({ loop, onClose, onJoin }: {
               {justJoined ? "Joined ✓" : loop.joined ? "Leave Loop" : loop.is_private ? "Request to Join" : "Join Loop"}
             </Button>
           )}
+
+          {/* View all posts button — always visible */}
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              onViewLoop(loop);
+              onClose();
+            }}>
+            View all posts in {loop.name} →
+          </Button>
         </div>
       </Card>
     </div>
@@ -500,7 +512,7 @@ function LoopCard({ loop, onJoinLeave, onEdit, onDelete }: {
     setLoading(true);
     const action = loop.joined ? "leave" : "join";
     try {
-      await fetch(`${API}/loops/${loop.id}/${action}/`, { method: "POST", headers: { ...authHeaders() } });
+      await fetch(`${API}/loops/${loop.id}/${action}/`, { method: "POST", headers: authHeaders() });
     } catch { }
     onJoinLeave(loop.id, action);
     setLoading(false);
@@ -588,7 +600,7 @@ function PostCard({ post, loops, onLikePost, onAddComment, onLikeComment, onDele
     if (!confirm("Delete this post?")) return;
     setDeleting(true);
     try {
-      await fetch(`${API}/posts/${post.id}/delete/`, { method: "DELETE", headers: { ...authHeaders() } });
+      await fetch(`${API}/posts/${post.id}/delete/`, { method: "DELETE", headers: authHeaders() });
       onDeletePost(post.id);
     } catch { }
     setDeleting(false);
@@ -623,7 +635,7 @@ function PostCard({ post, loops, onLikePost, onAddComment, onLikeComment, onDele
   const handleDeleteComment = async (commentId: number) => {
     if (!confirm("Delete this comment?")) return;
     try {
-      const res = await fetch(`${API}/comments/${commentId}/delete/`, { method: "DELETE", headers: { ...authHeaders() } });
+      const res = await fetch(`${API}/comments/${commentId}/delete/`, { method: "DELETE", headers: authHeaders() });
       if (res.ok) onDeleteComment(commentId, post.id);
     } catch { }
   };
@@ -797,14 +809,10 @@ export default function LoopsPage() {
   const [editingLoop, setEditingLoop] = useState<Loop | null>(null);
   const [deletingLoop, setDeletingLoop] = useState<Loop | null>(null);
   const [loopDetailModal, setLoopDetailModal] = useState<Loop | null>(null);
-
-  // ── My Loops view state ──
   const [selectedMyLoop, setSelectedMyLoop] = useState<number | "all">("all");
-  // When viewing a specific loop's posts inline (not in modal)
   const [viewingLoopPosts, setViewingLoopPosts] = useState<Loop | null>(null);
   const [loopViewPosts, setLoopViewPosts] = useState<Post[]>([]);
   const [loadingLoopPosts, setLoadingLoopPosts] = useState(false);
-
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTag, setActiveTag] = useState("All");
   const [user, setUser] = useState<{ first_name?: string; email?: string } | null>(null);
@@ -822,7 +830,7 @@ export default function LoopsPage() {
 
   const fetchLoops = async () => {
     try {
-      const res = await fetch(`${API}/loops/`, { headers: { ...authHeaders() } });
+      const res = await fetch(`${API}/loops/`, { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         setLoops(data.map((l: any) => ({ ...l, color: TAG_COLORS[l.tag] || TAG_COLORS["Other"] })));
@@ -833,7 +841,7 @@ export default function LoopsPage() {
 
   const fetchAllPosts = async () => {
     try {
-      const res = await fetch(`${API}/posts/`, { headers: { ...authHeaders() } });
+      const res = await fetch(`${API}/posts/`, { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) setAllPosts(data);
@@ -846,7 +854,7 @@ export default function LoopsPage() {
     setLoadingMyPosts(true);
     try {
       const url = loopId ? `${API}/posts/mine/?loop_id=${loopId}` : `${API}/posts/mine/`;
-      const res = await fetch(url, { headers: { ...authHeaders() } });
+      const res = await fetch(url, { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) setMyPosts(data);
@@ -859,7 +867,7 @@ export default function LoopsPage() {
     setLoadingLoopPosts(true);
     setViewingLoopPosts(loop);
     try {
-      const res = await fetch(`${API}/loops/${loop.id}/posts/`, { headers: { ...authHeaders() } });
+      const res = await fetch(`${API}/loops/${loop.id}/posts/`, { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         setLoopViewPosts(Array.isArray(data) ? data : []);
@@ -870,24 +878,21 @@ export default function LoopsPage() {
 
   const fetchRequests = async () => {
     try {
-      const res = await fetch(`${API}/loops/requests/`, { headers: { ...authHeaders() } });
+      const res = await fetch(`${API}/loops/requests/`, { headers: authHeaders() });
       if (res.ok) setRequests(await res.json());
     } catch { }
   };
 
   const fetchNotifications = useCallback(async (isInitial = false) => {
     try {
-      const res = await fetch(`${API}/notifications/`, { headers: { ...authHeaders() } });
+      const res = await fetch(`${API}/notifications/`, { headers: authHeaders() });
       if (!res.ok) return;
       const data: Notification[] = await res.json();
       setNotifications(data);
-
       if (isInitial) {
-        // On first load: mark all existing as seen so they don't show as unread
         markAllSeen(data);
         setUnreadCount(0);
       } else {
-        // On subsequent polls: only count truly new ones
         setUnreadCount(countUnseen(data));
       }
     } catch { }
@@ -898,11 +903,10 @@ export default function LoopsPage() {
     fetchAllPosts();
     fetchMyPosts();
     fetchRequests();
-    fetchNotifications(true); // initial load — mark all seen
-
+    fetchNotifications(true);
     const interval = setInterval(() => {
       fetchAllPosts();
-      fetchNotifications(false); // polls — show new ones
+      fetchNotifications(false);
     }, 15000);
     return () => clearInterval(interval);
   }, [fetchNotifications]);
@@ -911,7 +915,6 @@ export default function LoopsPage() {
     const opening = !showNotifications;
     setShowNotifications(opening);
     if (opening) {
-      // Mark all as seen when user opens the panel
       markAllSeen(notifications);
       setUnreadCount(0);
     }
@@ -919,7 +922,7 @@ export default function LoopsPage() {
 
   const handleMyLoopFilter = (value: number | "all") => {
     setSelectedMyLoop(value);
-    setViewingLoopPosts(null); // reset loop view
+    setViewingLoopPosts(null);
     fetchMyPosts(value === "all" ? undefined : value as number);
   };
 
@@ -948,7 +951,7 @@ export default function LoopsPage() {
       if (selectedLoopId) formData.append("loop_id", String(selectedLoopId));
       if (imageFile) formData.append("image", imageFile);
       const res = await fetch(`${API}/posts/create/`, {
-        method: "POST", headers: { ...authHeaders() }, body: formData,
+        method: "POST", headers: authHeaders(), body: formData,
       });
       const data = await res.json();
       if (res.ok) {
@@ -1041,7 +1044,7 @@ export default function LoopsPage() {
 
   const handleApproveRequest = async (req: JoinRequest) => {
     try {
-      await fetch(`${API}/loops/requests/${req.id}/approve/`, { method: "POST", headers: { ...authHeaders() } });
+      await fetch(`${API}/loops/requests/${req.id}/approve/`, { method: "POST", headers: authHeaders() });
     } catch { }
     setRequests((prev) => prev.filter((r) => r.id !== req.id));
     setLoops((prev) => prev.map((l) => l.id === req.loop_id ? { ...l, members: l.members + 1 } : l));
@@ -1050,7 +1053,7 @@ export default function LoopsPage() {
 
   const handleDenyRequest = async (req: JoinRequest) => {
     try {
-      await fetch(`${API}/loops/requests/${req.id}/deny/`, { method: "POST", headers: { ...authHeaders() } });
+      await fetch(`${API}/loops/requests/${req.id}/deny/`, { method: "POST", headers: authHeaders() });
     } catch { }
     setRequests((prev) => prev.filter((r) => r.id !== req.id));
     fetchNotifications(false);
@@ -1090,7 +1093,7 @@ export default function LoopsPage() {
             <p className="text-sm text-muted-foreground">Small communities. Big momentum.</p>
           </div>
 
-          {/* Notification bell */}
+          {/* Single notification bell — top right only */}
           <div className="relative">
             <button onClick={handleOpenNotifications}
               className="relative p-2 rounded-xl glass hover:bg-accent transition-colors">
@@ -1127,18 +1130,10 @@ export default function LoopsPage() {
                         </div>
                         {n.type === 'join_request' && n.membership_id && (
                           <div className="flex gap-2 pl-9">
-                            <button
-                              onClick={() => {
-                                handleApproveRequest({ id: n.membership_id!, loop_id: n.loop_id, loop_name: n.loop_name, user: n.user, handle: n.handle, requested_at: n.time });
-                                setShowNotifications(false);
-                              }}
+                            <button onClick={() => { handleApproveRequest({ id: n.membership_id!, loop_id: n.loop_id, loop_name: n.loop_name, user: n.user, handle: n.handle, requested_at: n.time }); setShowNotifications(false); }}
                               className="text-xs text-primary font-medium hover:opacity-70">Approve</button>
                             <span className="text-xs text-muted-foreground">·</span>
-                            <button
-                              onClick={() => {
-                                handleDenyRequest({ id: n.membership_id!, loop_id: n.loop_id, loop_name: n.loop_name, user: n.user, handle: n.handle, requested_at: n.time });
-                                setShowNotifications(false);
-                              }}
+                            <button onClick={() => { handleDenyRequest({ id: n.membership_id!, loop_id: n.loop_id, loop_name: n.loop_name, user: n.user, handle: n.handle, requested_at: n.time }); setShowNotifications(false); }}
                               className="text-xs text-red-500 font-medium hover:opacity-70">Deny</button>
                           </div>
                         )}
@@ -1173,7 +1168,6 @@ export default function LoopsPage() {
               <h2 className="font-semibold text-lg">All Posts</h2>
               <p className="text-xs text-muted-foreground">Public loop posts and your private loop posts</p>
             </div>
-
             <Card className="glass border-0 p-4">
               <div className="flex gap-3">
                 <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
@@ -1224,15 +1218,10 @@ export default function LoopsPage() {
                 </div>
               </div>
             </Card>
-
             {loadingAllPosts ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-              </div>
+              <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
             ) : allPosts.length === 0 ? (
-              <Card className="glass border-0 p-8 text-center">
-                <p className="text-sm text-muted-foreground">No posts yet. Be the first to share your progress!</p>
-              </Card>
+              <Card className="glass border-0 p-8 text-center"><p className="text-sm text-muted-foreground">No posts yet. Be the first to share your progress!</p></Card>
             ) : (
               allPosts.map((p) => <PostCard key={p.id} post={p} {...postCardProps} />)
             )}
@@ -1249,14 +1238,11 @@ export default function LoopsPage() {
                 <p className="text-xs text-muted-foreground mt-1">Go to Explore to find and join loops.</p>
               </Card>
             ) : viewingLoopPosts ? (
-              /* ── Inline Loop Posts View (like screenshot 2) ── */
               <>
-                {/* Back button + loop header */}
                 <button onClick={() => setViewingLoopPosts(null)}
                   className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
                   <ArrowLeft className="w-4 h-4" /> Back to My Loops
                 </button>
-
                 <Card className="glass border-0 p-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center"
@@ -1281,19 +1267,13 @@ export default function LoopsPage() {
                     </div>
                   </div>
                 </Card>
-
                 <h3 className="text-sm font-semibold text-muted-foreground">
                   All posts in {viewingLoopPosts.name} ({loopViewPosts.length})
                 </h3>
-
                 {loadingLoopPosts ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                  </div>
+                  <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
                 ) : loopViewPosts.length === 0 ? (
-                  <Card className="glass border-0 p-8 text-center">
-                    <p className="text-sm text-muted-foreground">No posts in this loop yet.</p>
-                  </Card>
+                  <Card className="glass border-0 p-8 text-center"><p className="text-sm text-muted-foreground">No posts in this loop yet.</p></Card>
                 ) : (
                   <div className="space-y-3">
                     {loopViewPosts.map((p) => <PostCard key={p.id} post={p} {...postCardProps} />)}
@@ -1301,9 +1281,7 @@ export default function LoopsPage() {
                 )}
               </>
             ) : (
-              /* ── Default My Loops view ── */
               <>
-                {/* Loop filter dropdown */}
                 <div className="relative">
                   <select value={selectedMyLoop}
                     onChange={(e) => handleMyLoopFilter(e.target.value === "all" ? "all" : Number(e.target.value))}
@@ -1316,7 +1294,6 @@ export default function LoopsPage() {
                   <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                 </div>
 
-                {/* Loop info card when specific loop selected */}
                 {selectedLoopInfo ? (
                   <Card className="glass border-0 p-4">
                     <div className="flex items-center gap-3">
@@ -1343,7 +1320,6 @@ export default function LoopsPage() {
                     </div>
                   </Card>
                 ) : (
-                  /* Show 2 most recent loops as clickable cards */
                   <div className="grid grid-cols-2 gap-3">
                     {recentLoops.map((l) => (
                       <Card key={l.id} className="glass border-0 p-3 cursor-pointer hover:shadow-sm transition-all"
@@ -1370,7 +1346,6 @@ export default function LoopsPage() {
                   </div>
                 )}
 
-                {/* My posts section */}
                 <div>
                   <h3 className="text-sm font-semibold mb-3 text-muted-foreground">
                     {selectedMyLoop === "all"
@@ -1378,9 +1353,7 @@ export default function LoopsPage() {
                       : `All posts in ${selectedLoopInfo?.name} (${myPosts.length})`}
                   </h3>
                   {loadingMyPosts ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                    </div>
+                    <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
                   ) : myPosts.length === 0 ? (
                     <Card className="glass border-0 p-8 text-center">
                       <p className="text-sm text-muted-foreground">
@@ -1425,13 +1398,9 @@ export default function LoopsPage() {
               ))}
             </div>
             {loadingLoops ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-              </div>
+              <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
             ) : filteredLoops.length === 0 ? (
-              <Card className="glass border-0 p-8 text-center">
-                <p className="text-sm text-muted-foreground">No loops found. Try a different search or create one!</p>
-              </Card>
+              <Card className="glass border-0 p-8 text-center"><p className="text-sm text-muted-foreground">No loops found. Try a different search or create one!</p></Card>
             ) : (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredLoops.map((l) => (
@@ -1525,7 +1494,7 @@ export default function LoopsPage() {
       )}
       {deletingLoop && (
         <DeleteLoopModal loop={deletingLoop} onClose={() => setDeletingLoop(null)} onConfirm={async () => {
-          try { await fetch(`${API}/loops/${deletingLoop.id}/delete/`, { method: "DELETE", headers: { ...authHeaders() } }); } catch { }
+          try { await fetch(`${API}/loops/${deletingLoop.id}/delete/`, { method: "DELETE", headers: authHeaders() }); } catch { }
           setLoops((prev) => prev.filter((l) => l.id !== deletingLoop.id));
           setDeletingLoop(null);
         }} />
@@ -1534,6 +1503,10 @@ export default function LoopsPage() {
         <LoopDetailModal
           loop={loopDetailModal}
           onClose={() => setLoopDetailModal(null)}
+          onViewLoop={(loop) => {
+            setViewingLoopPosts(null);
+            fetchLoopPosts(loop);
+          }}
           onJoin={(id, action) => {
             handleJoinLeave(id, action);
             setLoopDetailModal((prev) => prev ? {
