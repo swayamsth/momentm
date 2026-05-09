@@ -100,7 +100,7 @@ class Post(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     loop = models.ForeignKey(Loop, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
     text = models.TextField()
-    image = models.ImageField(upload_to='post_images/', null=True, blank=True)
+    image_url = models.URLField(max_length=1000, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     likes = models.ManyToManyField(User, related_name='liked_posts', blank=True)
 
