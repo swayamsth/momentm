@@ -7,6 +7,9 @@ services:
       - "8000:8000"
     environment:
       - DEBUG=True
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     restart: unless-stopped
 
   frontend:
