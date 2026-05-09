@@ -8,6 +8,8 @@ from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import SignupSerializer
 from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership
+import uuid
+import os
 
 
 def get_tokens_for_user(user):
@@ -16,6 +18,25 @@ def get_tokens_for_user(user):
         'refresh': str(refresh),
         'access': str(refresh.access_token),
     }
+
+
+def upload_image_to_supabase(image_file):
+    try:
+        from supabase import create_client
+        client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        ext = os.path.splitext(image_file.name)[1].lower() or '.jpg'
+        filename = f"posts/{uuid.uuid4()}{ext}"
+        image_bytes = image_file.read()
+        client.storage.from_(settings.SUPABASE_BUCKET).upload(
+            filename,
+            image_bytes,
+            {"content-type": image_file.content_type or "image/jpeg"}
+        )
+        public_url = client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(filename)
+        return public_url
+    except Exception as e:
+        print(f"Supabase upload error: {e}")
+        return None
 
 
 @api_view(['POST'])
@@ -257,7 +278,7 @@ def serialize_post(post, request_user=None):
         'user': full_name or post.user.email,
         'handle': post.user.email.split('@')[0],
         'text': post.text,
-        'image': None,
+        'image': post.image_url or None,
         'loop': post.loop.name if post.loop else None,
         'loop_id': post.loop.id if post.loop else None,
         'loop_is_private': post.loop.is_private if post.loop else False,
@@ -286,10 +307,7 @@ def get_posts_view(request):
         if post.loop and post.loop.is_private:
             if not request.user.is_authenticated or post.loop.id not in user_loop_ids:
                 continue
-        serialized = serialize_post(post, request.user)
-        if post.image:
-            serialized['image'] = request.build_absolute_uri(post.image.url)
-        data.append(serialized)
+        data.append(serialize_post(post, request.user))
 
     return Response(data)
 
@@ -303,28 +321,19 @@ def get_my_posts_view(request):
     if loop_id:
         if int(loop_id) not in user_loop_ids:
             return Response({'error': 'Not a member of this loop.'}, status=status.HTTP_403_FORBIDDEN)
-        # Return ALL posts in the loop, not just the user's
         posts = Post.objects.filter(
             loop_id=loop_id
         ).select_related('user', 'loop').prefetch_related(
             'post_comments__user', 'post_comments__likes', 'likes'
         )
     else:
-        # Return only the logged-in user's posts across all loops
         posts = Post.objects.filter(
             user=request.user
         ).select_related('user', 'loop').prefetch_related(
             'post_comments__user', 'post_comments__likes', 'likes'
         )
 
-    data = []
-    for post in posts:
-        serialized = serialize_post(post, request.user)
-        if post.image:
-            serialized['image'] = request.build_absolute_uri(post.image.url)
-        data.append(serialized)
-
-    return Response(data)
+    return Response([serialize_post(post, request.user) for post in posts])
 
 
 @api_view(['GET'])
@@ -340,19 +349,11 @@ def get_loop_posts_view(request, loop_id):
     if loop.is_private and loop_id not in user_loop_ids:
         return Response({'error': 'Not a member of this loop.'}, status=status.HTTP_403_FORBIDDEN)
 
-    # Return ALL posts from ALL members of the loop
     posts = Post.objects.filter(loop=loop).select_related('user', 'loop').prefetch_related(
         'post_comments__user', 'post_comments__likes', 'likes'
     )
 
-    data = []
-    for post in posts:
-        serialized = serialize_post(post, request.user)
-        if post.image:
-            serialized['image'] = request.build_absolute_uri(post.image.url)
-        data.append(serialized)
-
-    return Response(data)
+    return Response([serialize_post(post, request.user) for post in posts])
 
 
 @api_view(['POST'])
@@ -377,7 +378,17 @@ def create_post_view(request):
         except Loop.DoesNotExist:
             pass
 
-    post = Post.objects.create(user=request.user, text=text, loop=loop, image=image)
+    # Upload to Supabase Storage
+    image_url = None
+    if image:
+        image_url = upload_image_to_supabase(image)
+
+    post = Post.objects.create(
+        user=request.user,
+        text=text,
+        loop=loop,
+        image_url=image_url,
+    )
     full_name = f"{request.user.first_name} {request.user.last_name}".strip()
 
     return Response({
@@ -385,7 +396,7 @@ def create_post_view(request):
         'user': full_name or request.user.email,
         'handle': request.user.email.split('@')[0],
         'text': post.text,
-        'image': request.build_absolute_uri(post.image.url) if post.image else None,
+        'image': image_url,
         'loop': loop.name if loop else None,
         'loop_id': loop.id if loop else None,
         'loop_is_private': loop.is_private if loop else False,
@@ -558,7 +569,6 @@ def create_loop_view(request):
     if not name:
         return Response({'error': 'Loop name is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Limit: max 3 loops per user
     user_loop_count = Loop.objects.filter(created_by=request.user).count()
     if user_loop_count >= 3:
         return Response({'error': 'LOOP_LIMIT_REACHED'}, status=status.HTTP_403_FORBIDDEN)
@@ -701,7 +711,6 @@ def deny_request_view(request, membership_id):
 def get_notifications_view(request):
     notifications = []
 
-    # Join requests on private loops
     my_private_loops = Loop.objects.filter(created_by=request.user, is_private=True)
     pending = LoopMembership.objects.filter(
         loop__in=my_private_loops, status='pending'
@@ -722,7 +731,6 @@ def get_notifications_view(request):
             'read': False,
         })
 
-    # New approved members on public loops
     my_public_loops = Loop.objects.filter(created_by=request.user, is_private=False)
     approved = LoopMembership.objects.filter(
         loop__in=my_public_loops, status='approved'
@@ -743,7 +751,6 @@ def get_notifications_view(request):
         })
 
     notifications.sort(key=lambda x: x['time'], reverse=True)
-
     return Response(notifications[:30])
 
 
