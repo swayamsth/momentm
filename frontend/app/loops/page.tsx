@@ -50,6 +50,7 @@ interface Loop {
   joined: boolean;
   pending: boolean;
   joined_at?: string;
+  image_url?: string | null;
 }
 
 interface JoinRequest {
@@ -63,7 +64,7 @@ interface JoinRequest {
 
 interface Notification {
   id: string;
-  type: 'join_request' | 'new_member';
+  type: "join_request" | "new_member";
   message: string;
   loop_id: number;
   loop_name: string;
@@ -113,6 +114,13 @@ function getMemberSince(dateStr: string) {
   return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
+function loadUser(): { first_name?: string; email?: string } | null {
+  try {
+    const stored = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    return stored ? JSON.parse(stored) : null;
+  } catch { return null; }
+}
+
 const SEEN_NOTIF_KEY = "momentm_seen_notif_ids";
 
 function getSeenIds(): Set<string> {
@@ -123,9 +131,7 @@ function getSeenIds(): Set<string> {
 }
 
 function saveSeenIds(ids: Set<string>) {
-  try {
-    localStorage.setItem(SEEN_NOTIF_KEY, JSON.stringify([...ids]));
-  } catch { }
+  try { localStorage.setItem(SEEN_NOTIF_KEY, JSON.stringify([...ids])); } catch { }
 }
 
 function markAllSeen(notifs: Notification[]) {
@@ -137,6 +143,26 @@ function markAllSeen(notifs: Notification[]) {
 function countUnseen(notifs: Notification[]): number {
   const seen = getSeenIds();
   return notifs.filter((n) => !seen.has(n.id)).length;
+}
+
+// ─── Loop Avatar ──────────────────────────────────────────────────────────────
+
+function LoopAvatar({ loop, size = "md" }: { loop: Loop; size?: "sm" | "md" | "lg" }) {
+  const sizeMap = {
+    sm: { wrapper: "w-7 h-7", icon: "w-3.5 h-3.5" },
+    md: { wrapper: "w-12 h-12", icon: "w-5 h-5" },
+    lg: { wrapper: "w-14 h-14", icon: "w-7 h-7" },
+  };
+  const s = sizeMap[size];
+  if (loop.image_url) {
+    return <img src={loop.image_url} alt={loop.name} className={`${s.wrapper} rounded-xl object-cover flex-shrink-0`} />;
+  }
+  return (
+    <div className={`${s.wrapper} rounded-xl flex items-center justify-center flex-shrink-0`}
+      style={{ background: `color-mix(in oklab, ${loop.color} 18%, transparent)` }}>
+      <Users className={s.icon} style={{ color: loop.color }} />
+    </div>
+  );
 }
 
 // ─── Upgrade Modal ────────────────────────────────────────────────────────────
@@ -152,7 +178,7 @@ function UpgradeModal({ onClose }: { onClose: () => void }) {
         <div>
           <h2 className="text-lg font-semibold">Loop Limit Reached</h2>
           <p className="text-sm text-muted-foreground mt-2">
-            You&apos;ve created 3 loops — the maximum on your current plan. Upgrade to Premium to create unlimited loops and unlock exclusive features.
+            You&apos;ve created 3 loops — the maximum on your current plan. Upgrade to Premium to create unlimited loops.
           </p>
         </div>
         <div className="space-y-2">
@@ -181,9 +207,7 @@ function LoopDetailModal({ loop, onClose, onJoin, onViewLoop }: {
     setLoading(true);
     const action = loop.joined ? "leave" : "join";
     try {
-      await fetch(`${API}/loops/${loop.id}/${action}/`, {
-        method: "POST", headers: authHeaders(),
-      });
+      await fetch(`${API}/loops/${loop.id}/${action}/`, { method: "POST", headers: authHeaders() });
     } catch { }
     onJoin(loop.id, action);
     if (action === "join" && !loop.is_private) setJustJoined(true);
@@ -198,19 +222,15 @@ function LoopDetailModal({ loop, onClose, onJoin, onViewLoop }: {
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-lg font-semibold">{loop.name}</h2>
             <Badge variant="secondary" className="text-xs flex items-center gap-1">
-              {loop.is_private ? <><Lock className="w-2.5 h-2.5" /> Private</> : <><Globe className="w-2.5 h-2.5" /> Public</>}
+              {loop.is_private ? <><Lock className="w-2.5 h-2.5" />Private</> : <><Globe className="w-2.5 h-2.5" />Public</>}
             </Badge>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground flex-shrink-0">
             <X className="w-5 h-5" />
           </button>
         </div>
-
         <div className="flex items-center gap-3">
-          <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: `color-mix(in oklab, ${loop.color} 18%, transparent)` }}>
-            <Users className="w-7 h-7" style={{ color: loop.color }} />
-          </div>
+          <LoopAvatar loop={loop} size="lg" />
           <div>
             <Badge variant="secondary" className="text-xs mb-1">{loop.tag}</Badge>
             <div className="text-sm text-muted-foreground flex items-center gap-1">
@@ -223,18 +243,14 @@ function LoopDetailModal({ loop, onClose, onJoin, onViewLoop }: {
             )}
           </div>
         </div>
-
         <p className="text-sm text-muted-foreground">{loop.desc}</p>
-
         {justJoined && (
           <div className="glass rounded-xl p-3 text-center space-y-1">
             <p className="text-sm font-semibold gradient-text">🎉 Welcome to {loop.name}!</p>
             <p className="text-xs text-muted-foreground">You are now a member of this loop.</p>
           </div>
         )}
-
         <div className="space-y-2">
-          {/* Join / Leave / Admin / Pending button */}
           {loop.created_by_me ? (
             <div className="glass rounded-xl p-3 text-center">
               <Badge className="gradient-bg text-primary-foreground border-0">You are the Admin</Badge>
@@ -253,15 +269,7 @@ function LoopDetailModal({ loop, onClose, onJoin, onViewLoop }: {
               {justJoined ? "Joined ✓" : loop.joined ? "Leave Loop" : loop.is_private ? "Request to Join" : "Join Loop"}
             </Button>
           )}
-
-          {/* View all posts button — always visible */}
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => {
-              onViewLoop(loop);
-              onClose();
-            }}>
+          <Button variant="outline" className="w-full" onClick={() => { onViewLoop(loop); onClose(); }}>
             View all posts in {loop.name} →
           </Button>
         </div>
@@ -283,7 +291,7 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   );
 }
 
-// ─── Delete Loop Modal ─────────────────────────────────────────────────────────
+// ─── Delete Loop Modal ────────────────────────────────────────────────────────
 
 function DeleteLoopModal({ loop, onClose, onConfirm }: { loop: Loop; onClose: () => void; onConfirm: () => void }) {
   return (
@@ -308,15 +316,60 @@ function DeleteLoopModal({ loop, onClose, onConfirm }: { loop: Loop; onClose: ()
 
 // ─── Edit Loop Modal ──────────────────────────────────────────────────────────
 
-function EditLoopModal({ loop, onClose, onSave }: { loop: Loop; onClose: () => void; onSave: (updated: Partial<Loop>) => void }) {
+function EditLoopModal({ loop, onClose, onSave }: {
+  loop: Loop;
+  onClose: () => void;
+  onSave: (updated: Partial<Loop>) => void;
+}) {
   const [name, setName] = useState(loop.name);
   const [desc, setDesc] = useState(loop.desc);
   const [tag, setTag] = useState(loop.tag);
   const [isPrivate, setIsPrivate] = useState(loop.is_private);
   const [loading, setLoading] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(loop.image_url || null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageError, setImageError] = useState("");
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { setImageError("Image must be under 10MB."); return; }
+    setImageFile(file);
+    setImageError("");
+    const reader = new FileReader();
+    reader.onload = () => setImagePreview(reader.result as string);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
 
   const handleSave = async () => {
     setLoading(true);
+    let newImageUrl = loop.image_url || null;
+
+    if (imageFile) {
+      setUploadingImage(true);
+      try {
+        const formData = new FormData();
+        formData.append("image", imageFile);
+        const res = await fetch(`${API}/loops/${loop.id}/upload-image/`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: formData,
+        });
+        const data = await res.json();
+        if (res.ok) {
+          newImageUrl = data.image_url;
+        } else {
+          setImageError(data.error || "Image upload failed.");
+        }
+      } catch {
+        setImageError("Could not upload image.");
+      }
+      setUploadingImage(false);
+    }
+
     try {
       await fetch(`${API}/loops/${loop.id}/edit/`, {
         method: "PATCH",
@@ -324,7 +377,8 @@ function EditLoopModal({ loop, onClose, onSave }: { loop: Loop; onClose: () => v
         body: JSON.stringify({ name, description: desc, tag, is_private: isPrivate }),
       });
     } catch { }
-    onSave({ name, desc, tag, is_private: isPrivate });
+
+    onSave({ name, desc, tag, is_private: isPrivate, image_url: newImageUrl });
     setLoading(false);
     onClose();
   };
@@ -332,11 +386,46 @@ function EditLoopModal({ loop, onClose, onSave }: { loop: Loop; onClose: () => v
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-foreground/20 backdrop-blur-sm" onClick={onClose} />
-      <Card className="glass-strong border-0 w-full max-w-md p-6 relative z-10 space-y-4">
+      <Card className="glass-strong border-0 w-full max-w-md p-6 relative z-10 space-y-4 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Edit Loop</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
         </div>
+
+        {/* Group Image Upload */}
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-2 block">Group Image</label>
+          {imagePreview ? (
+            <div className="relative rounded-xl overflow-hidden">
+              <img src={imagePreview} alt="Group" className="w-full h-32 object-cover rounded-xl" />
+              <div className="absolute inset-0 bg-black/40 flex items-center justify-center gap-2 opacity-0 hover:opacity-100 transition-opacity rounded-xl">
+                <button onClick={() => imageInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-lg bg-white/20 text-white text-xs font-medium hover:bg-white/30 flex items-center gap-1">
+                  <ImageIcon className="w-3.5 h-3.5" /> Change
+                </button>
+                <button onClick={() => { setImagePreview(null); setImageFile(null); }}
+                  className="px-3 py-1.5 rounded-lg bg-red-500/80 text-white text-xs font-medium hover:bg-red-600/80 flex items-center gap-1">
+                  <X className="w-3.5 h-3.5" /> Remove
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => imageInputRef.current?.click()}
+              className="w-full h-32 rounded-xl border-2 border-dashed border-border hover:border-primary/40 transition-colors flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-primary bg-muted/30">
+              <ImageIcon className="w-6 h-6" />
+              <span className="text-xs font-medium">Upload group image</span>
+              <span className="text-xs opacity-60">JPG, PNG up to 10MB</span>
+            </button>
+          )}
+          <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+          {imageError && <p className="text-xs text-red-500 mt-1">{imageError}</p>}
+          {uploadingImage && (
+            <p className="text-xs text-primary mt-1 flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" /> Uploading image...
+            </p>
+          )}
+        </div>
+
         <div className="space-y-3">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Loop Name</label>
@@ -521,10 +610,7 @@ function LoopCard({ loop, onJoinLeave, onEdit, onDelete }: {
   return (
     <Card className="glass border-0 p-5 hover:shadow-[var(--shadow-elegant)] transition-all hover:-translate-y-0.5 flex flex-col">
       <div className="flex items-start justify-between mb-3">
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center"
-          style={{ background: `color-mix(in oklab, ${loop.color} 18%, transparent)` }}>
-          <Users className="w-5 h-5" style={{ color: loop.color }} />
-        </div>
+        <LoopAvatar loop={loop} size="md" />
         <div className="flex items-center gap-1.5">
           {loop.is_private && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
           <Badge variant="secondary" className="text-xs">{loop.tag}</Badge>
@@ -654,8 +740,7 @@ function PostCard({ post, loops, onLikePost, onAddComment, onLikeComment, onDele
                 <span className="font-semibold">{post.user}</span>
                 <span className="text-muted-foreground">@{post.handle} · {post.time}</span>
                 {post.loop && post.loop_id && (
-                  <button onClick={() => onLoopClick(post.loop_id!)}
-                    className="flex items-center gap-1 hover:opacity-70 transition-opacity">
+                  <button onClick={() => onLoopClick(post.loop_id!)} className="flex items-center gap-1 hover:opacity-70 transition-opacity">
                     <Badge variant="secondary" className="text-xs flex items-center gap-1 cursor-pointer hover:bg-accent">
                       {post.loop_is_private && <Lock className="w-2.5 h-2.5" />}
                       {post.loop}
@@ -788,7 +873,10 @@ function PostCard({ post, loops, onLikePost, onAddComment, onLikeComment, onDele
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function LoopsPage() {
+  // ── Fix: no setState in useEffect for user or mounted ──
+  const [user] = useState<{ first_name?: string; email?: string } | null>(() => loadUser());
   const [mounted, setMounted] = useState(false);
+
   const [loops, setLoops] = useState<Loop[]>([]);
   const [loadingLoops, setLoadingLoops] = useState(true);
   const [allPosts, setAllPosts] = useState<Post[]>([]);
@@ -815,31 +903,29 @@ export default function LoopsPage() {
   const [loadingLoopPosts, setLoadingLoopPosts] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTag, setActiveTag] = useState("All");
-  const [user, setUser] = useState<{ first_name?: string; email?: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Fix: only setMounted here, user loaded via useState initializer ──
   useEffect(() => {
     setMounted(true);
-    const stored = localStorage.getItem("user");
-    if (stored) { try { setUser(JSON.parse(stored)); } catch { } }
   }, []);
 
   const initials = mounted
     ? (user?.first_name?.[0] ?? user?.email?.[0] ?? "?").toUpperCase()
     : "?";
 
-  const fetchLoops = async () => {
+  const fetchLoops = useCallback(async () => {
     try {
       const res = await fetch(`${API}/loops/`, { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
-        setLoops(data.map((l: any) => ({ ...l, color: TAG_COLORS[l.tag] || TAG_COLORS["Other"] })));
+        setLoops(data.map((l: Loop) => ({ ...l, color: TAG_COLORS[l.tag] || TAG_COLORS["Other"] })));
       }
     } catch { }
     setLoadingLoops(false);
-  };
+  }, []);
 
-  const fetchAllPosts = async () => {
+  const fetchAllPosts = useCallback(async () => {
     try {
       const res = await fetch(`${API}/posts/`, { headers: authHeaders() });
       if (res.ok) {
@@ -848,9 +934,9 @@ export default function LoopsPage() {
       }
     } catch { }
     setLoadingAllPosts(false);
-  };
+  }, []);
 
-  const fetchMyPosts = async (loopId?: number) => {
+  const fetchMyPosts = useCallback(async (loopId?: number) => {
     setLoadingMyPosts(true);
     try {
       const url = loopId ? `${API}/posts/mine/?loop_id=${loopId}` : `${API}/posts/mine/`;
@@ -861,9 +947,9 @@ export default function LoopsPage() {
       }
     } catch { }
     setLoadingMyPosts(false);
-  };
+  }, []);
 
-  const fetchLoopPosts = async (loop: Loop) => {
+  const fetchLoopPosts = useCallback(async (loop: Loop) => {
     setLoadingLoopPosts(true);
     setViewingLoopPosts(loop);
     try {
@@ -874,14 +960,14 @@ export default function LoopsPage() {
       }
     } catch { }
     setLoadingLoopPosts(false);
-  };
+  }, []);
 
-  const fetchRequests = async () => {
+  const fetchRequests = useCallback(async () => {
     try {
       const res = await fetch(`${API}/loops/requests/`, { headers: authHeaders() });
       if (res.ok) setRequests(await res.json());
     } catch { }
-  };
+  }, []);
 
   const fetchNotifications = useCallback(async (isInitial = false) => {
     try {
@@ -898,18 +984,24 @@ export default function LoopsPage() {
     } catch { }
   }, []);
 
+  // ── Fix: all fetch calls are async inside the effect so setState is never synchronous ──
   useEffect(() => {
-    fetchLoops();
-    fetchAllPosts();
-    fetchMyPosts();
-    fetchRequests();
-    fetchNotifications(true);
-    const interval = setInterval(() => {
-      fetchAllPosts();
-      fetchNotifications(false);
+    const init = async () => {
+      await Promise.all([
+        fetchLoops(),
+        fetchAllPosts(),
+        fetchMyPosts(),
+        fetchRequests(),
+        fetchNotifications(true),
+      ]);
+    };
+    init();
+    const interval = setInterval(async () => {
+      await fetchAllPosts();
+      await fetchNotifications(false);
     }, 15000);
     return () => clearInterval(interval);
-  }, [fetchNotifications]);
+  }, [fetchLoops, fetchAllPosts, fetchMyPosts, fetchRequests, fetchNotifications]);
 
   const handleOpenNotifications = () => {
     const opening = !showNotifications;
@@ -924,10 +1016,6 @@ export default function LoopsPage() {
     setSelectedMyLoop(value);
     setViewingLoopPosts(null);
     fetchMyPosts(value === "all" ? undefined : value as number);
-  };
-
-  const handleViewLoopPosts = (loop: Loop) => {
-    fetchLoopPosts(loop);
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1093,7 +1181,7 @@ export default function LoopsPage() {
             <p className="text-sm text-muted-foreground">Small communities. Big momentum.</p>
           </div>
 
-          {/* Single notification bell — top right only */}
+          {/* Notification bell */}
           <div className="relative">
             <button onClick={handleOpenNotifications}
               className="relative p-2 rounded-xl glass hover:bg-accent transition-colors">
@@ -1104,7 +1192,6 @@ export default function LoopsPage() {
                 </span>
               )}
             </button>
-
             {showNotifications && (
               <div className="absolute right-0 top-12 w-80 z-50">
                 <Card className="glass-strong border-0 p-3 space-y-2 max-h-80 overflow-y-auto shadow-lg">
@@ -1120,7 +1207,7 @@ export default function LoopsPage() {
                     notifications.map((n) => (
                       <div key={n.id} className="glass rounded-xl p-3 space-y-1">
                         <div className="flex items-start gap-2">
-                          <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-semibold text-white ${n.type === 'join_request' ? 'bg-amber-500' : 'bg-green-500'}`}>
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-semibold text-white ${n.type === "join_request" ? "bg-amber-500" : "bg-green-500"}`}>
                             {n.user[0].toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -1128,7 +1215,7 @@ export default function LoopsPage() {
                             <p className="text-xs text-muted-foreground mt-0.5">{n.time}</p>
                           </div>
                         </div>
-                        {n.type === 'join_request' && n.membership_id && (
+                        {n.type === "join_request" && n.membership_id && (
                           <div className="flex gap-2 pl-9">
                             <button onClick={() => { handleApproveRequest({ id: n.membership_id!, loop_id: n.loop_id, loop_name: n.loop_name, user: n.user, handle: n.handle, requested_at: n.time }); setShowNotifications(false); }}
                               className="text-xs text-primary font-medium hover:opacity-70">Approve</button>
@@ -1245,15 +1332,12 @@ export default function LoopsPage() {
                 </button>
                 <Card className="glass border-0 p-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                      style={{ background: `color-mix(in oklab, ${viewingLoopPosts.color} 18%, transparent)` }}>
-                      <Users className="w-5 h-5" style={{ color: viewingLoopPosts.color }} />
-                    </div>
+                    <LoopAvatar loop={viewingLoopPosts} size="md" />
                     <div className="flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-sm">{viewingLoopPosts.name}</span>
                         <Badge variant="secondary" className="text-xs flex items-center gap-1">
-                          {viewingLoopPosts.is_private ? <><Lock className="w-2.5 h-2.5" /> Private</> : <><Globe className="w-2.5 h-2.5" /> Public</>}
+                          {viewingLoopPosts.is_private ? <><Lock className="w-2.5 h-2.5" />Private</> : <><Globe className="w-2.5 h-2.5" />Public</>}
                         </Badge>
                         <Badge variant="secondary" className="text-xs">{viewingLoopPosts.tag}</Badge>
                       </div>
@@ -1297,15 +1381,12 @@ export default function LoopsPage() {
                 {selectedLoopInfo ? (
                   <Card className="glass border-0 p-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                        style={{ background: `color-mix(in oklab, ${selectedLoopInfo.color} 18%, transparent)` }}>
-                        <Users className="w-5 h-5" style={{ color: selectedLoopInfo.color }} />
-                      </div>
+                      <LoopAvatar loop={selectedLoopInfo} size="md" />
                       <div className="flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-sm">{selectedLoopInfo.name}</span>
                           <Badge variant="secondary" className="text-xs flex items-center gap-1">
-                            {selectedLoopInfo.is_private ? <><Lock className="w-2.5 h-2.5" /> Private</> : <><Globe className="w-2.5 h-2.5" /> Public</>}
+                            {selectedLoopInfo.is_private ? <><Lock className="w-2.5 h-2.5" />Private</> : <><Globe className="w-2.5 h-2.5" />Public</>}
                           </Badge>
                           <Badge variant="secondary" className="text-xs">{selectedLoopInfo.tag}</Badge>
                         </div>
@@ -1323,12 +1404,9 @@ export default function LoopsPage() {
                   <div className="grid grid-cols-2 gap-3">
                     {recentLoops.map((l) => (
                       <Card key={l.id} className="glass border-0 p-3 cursor-pointer hover:shadow-sm transition-all"
-                        onClick={() => handleViewLoopPosts(l)}>
+                        onClick={() => fetchLoopPosts(l)}>
                         <div className="flex items-center gap-2 mb-1">
-                          <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-                            style={{ background: `color-mix(in oklab, ${l.color} 18%, transparent)` }}>
-                            <Users className="w-3.5 h-3.5" style={{ color: l.color }} />
-                          </div>
+                          <LoopAvatar loop={l} size="sm" />
                           <span className="text-xs font-semibold truncate flex-1">{l.name}</span>
                           {l.is_private ? <Lock className="w-3 h-3 text-muted-foreground flex-shrink-0" /> : <Globe className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
                         </div>

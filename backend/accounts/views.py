@@ -20,12 +20,12 @@ def get_tokens_for_user(user):
     }
 
 
-def upload_image_to_supabase(image_file):
+def upload_image_to_supabase(image_file, folder="posts"):
     try:
         from supabase import create_client
         client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
         ext = os.path.splitext(image_file.name)[1].lower() or '.jpg'
-        filename = f"posts/{uuid.uuid4()}{ext}"
+        filename = f"{folder}/{uuid.uuid4()}{ext}"
         image_bytes = image_file.read()
         client.storage.from_(settings.SUPABASE_BUCKET).upload(
             filename,
@@ -290,6 +290,34 @@ def serialize_post(post, request_user=None):
     }
 
 
+# ─── Helper: serialize a loop ─────────────────────────────────────────────────
+
+def serialize_loop(loop, request_user=None):
+    member_count = loop.memberships.filter(status='approved').count() + 1
+    membership = None
+    if request_user and request_user.is_authenticated:
+        try:
+            membership = LoopMembership.objects.get(loop=loop, user=request_user)
+        except LoopMembership.DoesNotExist:
+            pass
+
+    return {
+        'id': loop.id,
+        'name': loop.name,
+        'desc': loop.description,
+        'tag': loop.tag,
+        'is_private': loop.is_private,
+        'members': member_count,
+        'image_url': loop.image_url or None,
+        'created_by_me': loop.created_by == request_user if request_user and request_user.is_authenticated else False,
+        'joined': membership.status == 'approved' if membership else loop.created_by == request_user,
+        'pending': membership.status == 'pending' if membership else False,
+        'joined_at': membership.joined_at.isoformat() if membership and membership.status == 'approved' else (
+            loop.created_at.isoformat() if request_user and loop.created_by == request_user else None
+        ),
+    }
+
+
 # ─── Posts ────────────────────────────────────────────────────────────────────
 
 @api_view(['GET'])
@@ -378,10 +406,9 @@ def create_post_view(request):
         except Loop.DoesNotExist:
             pass
 
-    # Upload to Supabase Storage
     image_url = None
     if image:
-        image_url = upload_image_to_supabase(image)
+        image_url = upload_image_to_supabase(image, folder="posts")
 
     post = Post.objects.create(
         user=request.user,
@@ -531,31 +558,7 @@ def delete_comment_view(request, comment_id):
 @api_view(['GET'])
 def get_loops_view(request):
     loops = Loop.objects.select_related('created_by').prefetch_related('memberships').all()
-    data = []
-    for loop in loops:
-        member_count = loop.memberships.filter(status='approved').count() + 1
-        membership = None
-        if request.user.is_authenticated:
-            try:
-                membership = LoopMembership.objects.get(loop=loop, user=request.user)
-            except LoopMembership.DoesNotExist:
-                pass
-
-        data.append({
-            'id': loop.id,
-            'name': loop.name,
-            'desc': loop.description,
-            'tag': loop.tag,
-            'is_private': loop.is_private,
-            'members': member_count,
-            'created_by_me': loop.created_by == request.user if request.user.is_authenticated else False,
-            'joined': membership.status == 'approved' if membership else loop.created_by == request.user,
-            'pending': membership.status == 'pending' if membership else False,
-            'joined_at': membership.joined_at.isoformat() if membership and membership.status == 'approved' else (
-                loop.created_at.isoformat() if loop.created_by == request.user else None
-            ),
-        })
-    return Response(data)
+    return Response([serialize_loop(loop, request.user) for loop in loops])
 
 
 @api_view(['POST'])
@@ -581,18 +584,7 @@ def create_loop_view(request):
         created_by=request.user,
     )
 
-    return Response({
-        'id': loop.id,
-        'name': loop.name,
-        'desc': loop.description,
-        'tag': loop.tag,
-        'is_private': loop.is_private,
-        'members': 1,
-        'created_by_me': True,
-        'joined': True,
-        'pending': False,
-        'joined_at': loop.created_at.isoformat(),
-    }, status=status.HTTP_201_CREATED)
+    return Response(serialize_loop(loop, request.user), status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -649,7 +641,7 @@ def edit_loop_view(request, loop_id):
     loop.is_private = request.data.get('is_private', loop.is_private)
     loop.save()
 
-    return Response({'message': 'Loop updated.'})
+    return Response(serialize_loop(loop, request.user))
 
 
 @api_view(['DELETE'])
@@ -661,6 +653,30 @@ def delete_loop_view(request, loop_id):
         return Response({'message': 'Loop deleted.'})
     except Loop.DoesNotExist:
         return Response({'error': 'Loop not found or not authorized.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+# ─── NEW: Upload loop group image ─────────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_loop_image_view(request, loop_id):
+    try:
+        loop = Loop.objects.get(id=loop_id, created_by=request.user)
+    except Loop.DoesNotExist:
+        return Response({'error': 'Loop not found or not authorized.'}, status=status.HTTP_404_NOT_FOUND)
+
+    image = request.FILES.get('image')
+    if not image:
+        return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    image_url = upload_image_to_supabase(image, folder="loops")
+    if not image_url:
+        return Response({'error': 'Image upload failed.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    loop.image_url = image_url
+    loop.save()
+
+    return Response({'image_url': image_url, 'message': 'Loop image updated.'})
 
 
 @api_view(['GET'])
