@@ -45,6 +45,7 @@ class UserProfile(models.Model):
     two_factor_enabled = models.BooleanField(default=False)
     two_factor_otp = models.CharField(max_length=6, blank=True, null=True)
     two_factor_otp_created_at = models.DateTimeField(blank=True, null=True)
+    is_premium = models.BooleanField(default=False)
 
     def is_2fa_otp_expired(self):
         if not self.two_factor_otp_created_at:

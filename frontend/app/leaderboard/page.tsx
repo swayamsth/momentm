@@ -1,4 +1,5 @@
 "use client";
+import { useState, useEffect } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,15 +8,13 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Trophy, Flame, Medal, Crown, Award, Lock } from "lucide-react";
 
-const users = [
-  { rank: 1, name: "Jordan K.", streak: 142, points: 12480, you: false },
-  { rank: 2, name: "Maya L.", streak: 98, points: 9820, you: false },
-  { rank: 3, name: "Sam R.", streak: 87, points: 8640, you: false },
-  { rank: 4, name: "Alex Rivera", streak: 23, points: 5240, you: true },
-  { rank: 5, name: "Priya N.", streak: 45, points: 4980, you: false },
-  { rank: 6, name: "Theo W.", streak: 31, points: 4210, you: false },
-  { rank: 7, name: "Nia C.", streak: 28, points: 3920, you: false },
-];
+type LeaderboardUser = {
+  rank: number;
+  name: string;
+  streak: number;
+  points: number;
+  you: boolean;
+};
 
 const badges = [
   { name: "Early Bird", desc: "10 workouts before 7am", earned: true, color: "oklch(0.78 0.16 75)" },
@@ -26,15 +25,24 @@ const badges = [
   { name: "Loop Leader", desc: "Lead a Loop to 1k members", earned: false, color: "oklch(0.5 0.15 280)" },
 ];
 
-function Row({ u }: { u: any }) {
-  const rankIcon = u.rank === 1 ? <Crown className="w-4 h-4 text-yellow-400" /> : u.rank === 2 ? <Medal className="w-4 h-4 text-muted-foreground" /> : u.rank === 3 ? <Medal className="w-4 h-4 text-orange-400" /> : <span className="text-sm font-semibold text-muted-foreground w-4 text-center">{u.rank}</span>;
+function Row({ u }: { u: LeaderboardUser }) {
+  const rankIcon =
+    u.rank === 1 ? <Crown className="w-4 h-4 text-yellow-400" /> :
+    u.rank === 2 ? <Medal className="w-4 h-4 text-muted-foreground" /> :
+    u.rank === 3 ? <Medal className="w-4 h-4 text-orange-400" /> :
+    <span className="text-sm font-semibold text-muted-foreground w-4 text-center">{u.rank}</span>;
   return (
     <div className={`glass rounded-xl p-4 flex items-center gap-4 ${u.you ? "ring-2 ring-primary" : ""}`}>
       <div className="w-8 flex justify-center">{rankIcon}</div>
       <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm">{u.name[0]}</div>
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-sm flex items-center gap-2">{u.name}{u.you && <Badge variant="secondary" className="text-xs">You</Badge>}</div>
-        <div className="text-xs text-muted-foreground flex items-center gap-1"><Flame className="w-3 h-3" />{u.streak} day streak</div>
+        <div className="font-medium text-sm flex items-center gap-2">
+          {u.name}
+          {u.you && <Badge variant="secondary" className="text-xs">You</Badge>}
+        </div>
+        <div className="text-xs text-muted-foreground flex items-center gap-1">
+          <Flame className="w-3 h-3" />{u.streak} day streak
+        </div>
       </div>
       <div className="text-right">
         <div className="font-semibold">{u.points.toLocaleString()}</div>
@@ -45,6 +53,23 @@ function Row({ u }: { u: any }) {
 }
 
 export default function LeaderboardPage() {
+  const [users, setUsers] = useState<LeaderboardUser[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem("access_token");
+    if (!token) { setLoading(false); return; }
+    fetch("http://127.0.0.1:8000/api/leaderboard/", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((data) => setUsers(Array.isArray(data) ? data : []))
+      .catch(() => setUsers([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const top3 = users.length >= 3 ? [users[1], users[0], users[2]] : [];
+
   return (
     <AppShell>
       <div className="space-y-6">
@@ -75,31 +100,47 @@ export default function LeaderboardPage() {
           </Dialog>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 max-w-2xl">
-          {[users[1], users[0], users[2]].map((u, i) => (
-            <Card key={u.name} className={`glass-strong border-0 p-5 text-center ${i === 1 ? "scale-105" : ""}`}>
-              <div className="flex justify-center mb-2">
-                {u.rank === 1 ? <Crown className="w-6 h-6 text-yellow-400" /> : <Medal className="w-5 h-5 text-muted-foreground" />}
+        {loading ? (
+          <div className="space-y-2">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="glass rounded-xl p-4 h-16 animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <>
+            {top3.length === 3 && (
+              <div className="grid grid-cols-3 gap-3 max-w-2xl">
+                {top3.map((u, i) => (
+                  <Card key={u.name} className={`glass-strong border-0 p-5 text-center ${i === 1 ? "scale-105" : ""} ${u.you ? "ring-2 ring-primary" : ""}`}>
+                    <div className="flex justify-center mb-2">
+                      {u.rank === 1 ? <Crown className="w-6 h-6 text-yellow-400" /> : <Medal className="w-5 h-5 text-muted-foreground" />}
+                    </div>
+                    <div className="w-14 h-14 mx-auto rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold mb-2">{u.name[0]}</div>
+                    <div className="font-semibold text-sm">{u.name}</div>
+                    <div className="text-xs text-muted-foreground">{u.points.toLocaleString()} pts</div>
+                  </Card>
+                ))}
               </div>
-              <div className="w-14 h-14 mx-auto rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold mb-2">{u.name[0]}</div>
-              <div className="font-semibold text-sm">{u.name}</div>
-              <div className="text-xs text-muted-foreground">{u.points.toLocaleString()} pts</div>
-            </Card>
-          ))}
-        </div>
+            )}
 
-        <Tabs defaultValue="global">
-          <TabsList className="glass">
-            <TabsTrigger value="global">Global</TabsTrigger>
-            <TabsTrigger value="loop">My Loops</TabsTrigger>
-          </TabsList>
-          <TabsContent value="global" className="space-y-2 mt-6">
-            {users.map((u) => <Row key={u.rank} u={u} />)}
-          </TabsContent>
-          <TabsContent value="loop" className="space-y-2 mt-6">
-            {users.slice(0, 5).map((u) => <Row key={u.rank} u={u} />)}
-          </TabsContent>
-        </Tabs>
+            <Tabs defaultValue="global">
+              <TabsList className="glass">
+                <TabsTrigger value="global">Global</TabsTrigger>
+                <TabsTrigger value="loop">My Loops</TabsTrigger>
+              </TabsList>
+              <TabsContent value="global" className="space-y-2 mt-6">
+                {users.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No activity data yet. Start logging to appear on the leaderboard!</p>
+                ) : (
+                  users.map((u) => <Row key={u.rank} u={u} />)
+                )}
+              </TabsContent>
+              <TabsContent value="loop" className="space-y-2 mt-6">
+                {users.slice(0, 5).map((u) => <Row key={u.rank} u={u} />)}
+              </TabsContent>
+            </Tabs>
+          </>
+        )}
       </div>
     </AppShell>
   );

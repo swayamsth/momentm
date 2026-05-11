@@ -330,33 +330,116 @@ def like_comment_view(request, comment_id):
         return Response({'error': 'Comment not found.'}, status=status.HTTP_404_NOT_FOUND)
 
 
+import math
+from collections import defaultdict
+
+MAX_DURATION_MINUTES = 300
+MAX_STEPS_PER_MINUTE = 180
+MAX_CALORIES_PER_MINUTE = 20
+DUPLICATE_ACTIVITY_POINT_MULTIPLIER = 0.5
+DAILY_CAP_FREE = 150
+DAILY_CAP_PREMIUM = 200
+FIRST_LOG_BONUS = 10
+
+
+def get_streak_multiplier(streak_days, is_premium):
+    if is_premium:
+        if streak_days >= 90:
+            return 2.0
+        if streak_days >= 60:
+            return 1.75
+    if streak_days >= 30:
+        return 1.5
+    if streak_days >= 14:
+        return 1.25
+    if streak_days >= 7:
+        return 1.1
+    return 1.0
+
+
+def calc_session_points(duration, steps, calories):
+    base = round(math.sqrt(duration) * 5)
+    intensity = min(steps // 500, 10) + min(calories // 100, 10)
+    return base + intensity
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def log_activity_view(request):
-    activity = request.data.get('activity', '').strip()
-    duration = request.data.get('duration', 0)
-    steps = request.data.get('steps', 0)
-    calories = request.data.get('calories', 0)
+    from django.utils import timezone
 
+    activity = request.data.get('activity', '').strip()
     if not activity:
         return Response({'error': 'Activity name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        duration = int(request.data.get('duration', 0))
+        steps = int(request.data.get('steps', 0))
+        calories = int(request.data.get('calories', 0))
+    except (ValueError, TypeError):
+        return Response({'error': 'Duration, steps, and calories must be numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if duration < 1:
+        return Response({'error': 'Duration must be at least 1 minute.'}, status=status.HTTP_400_BAD_REQUEST)
+    if duration > MAX_DURATION_MINUTES:
+        return Response({'error': f'Duration cannot exceed {MAX_DURATION_MINUTES} minutes per session.'}, status=status.HTTP_400_BAD_REQUEST)
+    if steps < 0 or calories < 0:
+        return Response({'error': 'Steps and calories cannot be negative.'}, status=status.HTTP_400_BAD_REQUEST)
+    if steps > duration * MAX_STEPS_PER_MINUTE:
+        return Response({'error': f'Steps seem too high for a {duration}-minute session (max {duration * MAX_STEPS_PER_MINUTE:,}).'}, status=status.HTTP_400_BAD_REQUEST)
+    if calories > duration * MAX_CALORIES_PER_MINUTE:
+        return Response({'error': f'Calories seem too high for a {duration}-minute session (max {duration * MAX_CALORIES_PER_MINUTE:,}).'}, status=status.HTTP_400_BAD_REQUEST)
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    daily_cap = DAILY_CAP_PREMIUM if profile.is_premium else DAILY_CAP_FREE
+
+    today = timezone.now().date()
+    today_logs = ActivityLog.objects.filter(user=request.user, logged_at__date=today).values('activity', 'duration', 'steps', 'calories')
+
+    is_first_log_today = not today_logs.exists()
+    already_logged_today = today_logs.filter(activity__iexact=activity).exists()
+
+    # Estimate points already earned today to inform the cap warning
+    today_points = FIRST_LOG_BONUS if not is_first_log_today else 0
+    seen = set()
+    for log in today_logs:
+        pts = calc_session_points(log['duration'], log['steps'], log['calories'])
+        if log['activity'].lower() in seen:
+            pts = int(pts * DUPLICATE_ACTIVITY_POINT_MULTIPLIER)
+        seen.add(log['activity'].lower())
+        today_points += pts
 
     log = ActivityLog.objects.create(
         user=request.user,
         activity=activity,
-        duration=int(duration),
-        steps=int(steps),
-        calories=int(calories),
+        duration=duration,
+        steps=steps,
+        calories=calories,
     )
 
-    return Response({
+    session_pts = calc_session_points(duration, steps, calories)
+    if already_logged_today:
+        session_pts = int(session_pts * DUPLICATE_ACTIVITY_POINT_MULTIPLIER)
+    if is_first_log_today:
+        session_pts += FIRST_LOG_BONUS
+
+    response_data = {
         'id': log.id,
         'activity': log.activity,
         'duration': log.duration,
         'steps': log.steps,
         'calories': log.calories,
         'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
-    }, status=status.HTTP_201_CREATED)
+        'points_earned': session_pts,
+    }
+
+    if today_points >= daily_cap:
+        response_data['warning'] = f"You've reached your {daily_cap}-point daily cap — this activity is logged but won't earn points today."
+        response_data['points_earned'] = 0
+    elif already_logged_today:
+        response_data['warning'] = f'You already logged {activity} today — this entry earns {int(DUPLICATE_ACTIVITY_POINT_MULTIPLIER * 100)}% points.'
+
+    return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['GET'])
@@ -372,3 +455,94 @@ def get_activities_view(request):
         'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
     } for log in logs]
     return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def leaderboard_view(request):
+    from django.utils import timezone
+    from datetime import timedelta
+
+    user_ids = ActivityLog.objects.values_list('user_id', flat=True).distinct()
+    users = User.objects.filter(id__in=user_ids).select_related('userprofile')
+
+    leaderboard = []
+    for user in users:
+        try:
+            is_premium = user.userprofile.is_premium
+        except UserProfile.DoesNotExist:
+            is_premium = False
+
+        daily_cap = DAILY_CAP_PREMIUM if is_premium else DAILY_CAP_FREE
+
+        logs = (
+            ActivityLog.objects
+            .filter(user=user)
+            .order_by('logged_at')
+            .values('activity', 'duration', 'steps', 'calories', 'logged_at')
+        )
+
+        # Group logs by calendar date
+        logs_by_date = defaultdict(list)
+        for log in logs:
+            logs_by_date[log['logged_at'].date()].append(log)
+
+        total_points = 0
+        consecutive_days = 0
+        prev_date = None
+
+        for date in sorted(logs_by_date):
+            # Track streak length up to and including this date
+            if prev_date is None or (date - prev_date).days == 1:
+                consecutive_days += 1
+            else:
+                consecutive_days = 1
+            prev_date = date
+
+            # First-log bonus for showing up
+            day_points = FIRST_LOG_BONUS
+            seen_activities = set()
+
+            for log in logs_by_date[date]:
+                pts = calc_session_points(log['duration'], log['steps'], log['calories'])
+                activity_key = log['activity'].lower()
+                if activity_key in seen_activities:
+                    pts = int(pts * DUPLICATE_ACTIVITY_POINT_MULTIPLIER)
+                seen_activities.add(activity_key)
+                day_points += pts
+
+            # Cap raw daily points before applying the streak bonus
+            day_points = min(day_points, daily_cap)
+
+            # Streak multiplier is a bonus on top — earned points already banked are untouched
+            day_points = round(day_points * get_streak_multiplier(consecutive_days, is_premium))
+            total_points += day_points
+
+        # Current display streak (may differ from the streak at last log date)
+        today = timezone.now().date()
+        all_dates = set(logs_by_date.keys())
+        display_streak = 0
+        current = today
+        while current in all_dates:
+            display_streak += 1
+            current -= timedelta(days=1)
+        if display_streak == 0:
+            current = today - timedelta(days=1)
+            while current in all_dates:
+                display_streak += 1
+                current -= timedelta(days=1)
+
+        full_name = f"{user.first_name} {user.last_name}".strip() or user.email.split('@')[0]
+        leaderboard.append({
+            'name': full_name,
+            'points': total_points,
+            'streak': display_streak,
+            'is_premium': is_premium,
+            'you': user.id == request.user.id,
+        })
+
+    leaderboard.sort(key=lambda x: x['points'], reverse=True)
+    for i, entry in enumerate(leaderboard):
+        entry['rank'] = i + 1
+
+    return Response(leaderboard)
