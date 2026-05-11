@@ -1,7 +1,6 @@
 from pathlib import Path
 import os
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-o42m5%#9=$3ycnn2og#&yx1qf773jb^pem29@kfs5e1rqwnvel'
@@ -98,7 +97,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:8080",
     "http://127.0.0.1:8080",
+    "http://frontend:3000",
 ]
+
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOW_METHODS = [
@@ -123,7 +124,7 @@ CORS_ALLOW_HEADERS = [
 ]
 
 REST_FRAMEWORK = {
-      'DEFAULT_AUTHENTICATION_CLASSES': (
+    'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
 }
@@ -138,7 +139,6 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
@@ -147,3 +147,10 @@ EMAIL_USE_SSL = False
 EMAIL_HOST_USER = 'adminmomentm@gmail.com'
 EMAIL_HOST_PASSWORD = 'ibca fsho gvxl wdlm'
 DEFAULT_FROM_EMAIL = 'adminmomentm@gmail.com'
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+SUPABASE_URL = "https://poxodxwrdhyatvefzbij.supabase.co"
+SUPABASE_KEY = "sb_publishable_6wbuEV-5dX0xP8LV19dsLA_7pEteAnP"
+SUPABASE_BUCKET = "post-images"

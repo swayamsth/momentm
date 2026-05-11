@@ -65,9 +65,45 @@ class UserProfile(models.Model):
         return f"{self.user.email} - 2FA: {self.two_factor_enabled}"
 
 
+class Loop(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True, default='')
+    tag = models.CharField(max_length=50, default='Other')
+    is_private = models.BooleanField(default=False)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_loops')
+    created_at = models.DateTimeField(auto_now_add=True)
+    # ── NEW: group image ──
+    image_url = models.URLField(max_length=1000, blank=True, null=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+class LoopMembership(models.Model):
+    STATUS_CHOICES = [
+        ('approved', 'Approved'),
+        ('pending', 'Pending'),
+    ]
+    loop = models.ForeignKey(Loop, on_delete=models.CASCADE, related_name='memberships')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='loop_memberships')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='approved')
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('loop', 'user')
+
+    def __str__(self):
+        return f"{self.user.email} - {self.loop.name} ({self.status})"
+
+
 class Post(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
+    loop = models.ForeignKey(Loop, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
     text = models.TextField()
+    image_url = models.URLField(max_length=1000, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     likes = models.ManyToManyField(User, related_name='liked_posts', blank=True)
 

@@ -7,6 +7,9 @@ services:
       - "8000:8000"
     environment:
       - DEBUG=True
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     restart: unless-stopped
 
   frontend:
@@ -17,4 +20,6 @@ services:
       - "3000:3000"
     depends_on:
       - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000/api
     restart: unless-stopped
