@@ -46,6 +46,7 @@ urlpatterns = [
     path('activities/log/', views.log_activity_view, name='log-activity'),
     # Leaderboard
     path('leaderboard/', views.leaderboard_view, name='leaderboard'),
+    path('loops/<int:loop_id>/leaderboard/', views.loop_leaderboard_view, name='loop-leaderboard'),
     # Rewards
     path('rewards/', views.rewards_view, name='rewards'),
     path('rewards/<int:reward_id>/claim/', views.claim_reward_view, name='claim-reward'),

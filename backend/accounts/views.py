@@ -1016,6 +1016,68 @@ def leaderboard_view(request):
     return Response(leaderboard)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def loop_leaderboard_view(request, loop_id):
+    from django.utils import timezone
+    from datetime import timedelta
+
+    try:
+        loop = Loop.objects.get(id=loop_id)
+    except Loop.DoesNotExist:
+        return Response({'error': 'Loop not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    member_ids = LoopMembership.objects.filter(
+        loop=loop, status='approved'
+    ).values_list('user_id', flat=True)
+
+    if request.user.id not in list(member_ids) and loop.created_by_id != request.user.id:
+        return Response({'error': 'Not a member of this loop.'}, status=status.HTTP_403_FORBIDDEN)
+
+    users = User.objects.filter(id__in=member_ids).select_related('userprofile')
+
+    leaderboard = []
+    for user in users:
+        try:
+            profile = user.userprofile
+        except UserProfile.DoesNotExist:
+            profile = None
+
+        total_points = compute_user_points(user, profile)
+
+        logs_dates = set(
+            ActivityLog.objects.filter(user=user).values_list('logged_at__date', flat=True)
+        )
+        today = timezone.now().date()
+        display_streak = 0
+        current = today
+        while current in logs_dates:
+            display_streak += 1
+            current -= timedelta(days=1)
+        if display_streak == 0:
+            current = today - timedelta(days=1)
+            while current in logs_dates:
+                display_streak += 1
+                current -= timedelta(days=1)
+
+        cosmetics = get_active_cosmetics(user)
+        full_name = f"{user.first_name} {user.last_name}".strip() or user.email.split('@')[0]
+        leaderboard.append({
+            'name': full_name,
+            'points': total_points,
+            'streak': display_streak,
+            'is_premium': profile.is_premium_active if profile else False,
+            'cosmetics': cosmetics,
+            'you': user.id == request.user.id,
+        })
+
+    leaderboard.sort(key=lambda x: x['points'], reverse=True)
+    for i, entry in enumerate(leaderboard):
+        entry['rank'] = i + 1
+
+    return Response(leaderboard)
+
+
 # ─── Rewards ──────────────────────────────────────────────────────────────────
 
 @api_view(['GET'])

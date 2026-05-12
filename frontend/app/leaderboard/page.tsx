@@ -6,9 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trophy, Flame, Medal, Crown, Award, Zap, Star, Ticket, Heart, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+
+type UserLoop = {
+  id: number;
+  name: string;
+  joined: boolean;
+};
 
 type LeaderboardUser = {
   rank: number;
@@ -91,6 +98,46 @@ function RewardCard({ reward, onClaim, claiming }: {
   );
 }
 
+type FilterValue = 10 | 50 | 100 | null;
+
+const FILTER_OPTIONS: { label: string; value: FilterValue }[] = [
+  { label: "Top 10",   value: 10 },
+  { label: "Top 50",   value: 50 },
+  { label: "Top 100",  value: 100 },
+  { label: "Everyone", value: null },
+];
+
+function FilterDropdown({ value, onChange }: { value: FilterValue; onChange: (v: FilterValue) => void }) {
+  return (
+    <Select
+      value={String(value)}
+      onValueChange={(v) => onChange(v === "null" ? null : (Number(v) as FilterValue))}
+    >
+      <SelectTrigger className="w-36 glass border-0 text-xs h-8">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="glass-strong border-0">
+        {FILTER_OPTIONS.map(opt => (
+          <SelectItem key={String(opt.value)} value={String(opt.value)} className="text-xs">
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function applyFilter(list: LeaderboardUser[], limit: FilterValue): {
+  visible: LeaderboardUser[];
+  you: LeaderboardUser | null;
+} {
+  if (!limit) return { visible: list, you: null };
+  const top = list.slice(0, limit);
+  const inTop = top.some(u => u.you);
+  const youEntry = list.find(u => u.you) ?? null;
+  return { visible: top, you: inTop ? null : youEntry };
+}
+
 function Row({ u }: { u: LeaderboardUser }) {
   const rankIcon =
     u.rank === 1 ? <Crown className="w-4 h-4 text-yellow-400" /> :
@@ -141,6 +188,12 @@ export default function LeaderboardPage() {
   const [loadingRewards, setLoadingRewards] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [storeOpen, setStoreOpen] = useState(false);
+  const [myLoops, setMyLoops] = useState<UserLoop[]>([]);
+  const [selectedLoopId, setSelectedLoopId] = useState<number | null>(null);
+  const [loopUsers, setLoopUsers] = useState<LeaderboardUser[]>([]);
+  const [loadingLoopBoard, setLoadingLoopBoard] = useState(false);
+  const [globalFilter, setGlobalFilter] = useState<FilterValue>(null);
+  const [loopFilter, setLoopFilter] = useState<FilterValue>(null);
 
   const token = () => localStorage.getItem("access_token") ?? "";
 
@@ -171,6 +224,31 @@ export default function LeaderboardPage() {
   useEffect(() => {
     if (storeOpen) fetchRewards();
   }, [storeOpen, fetchRewards]);
+
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/api/loops/", {
+      headers: { Authorization: `Bearer ${token()}` },
+    })
+      .then(r => r.json())
+      .then(d => {
+        const joined = Array.isArray(d) ? d.filter((l: UserLoop & { joined: boolean }) => l.joined) : [];
+        setMyLoops(joined);
+        if (joined.length > 0) setSelectedLoopId(joined[0].id);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!selectedLoopId) return;
+    setLoadingLoopBoard(true);
+    fetch(`http://127.0.0.1:8000/api/loops/${selectedLoopId}/leaderboard/`, {
+      headers: { Authorization: `Bearer ${token()}` },
+    })
+      .then(r => r.json())
+      .then(d => setLoopUsers(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setLoadingLoopBoard(false));
+  }, [selectedLoopId]);
 
   const handleClaim = async (rewardId: number) => {
     setClaiming(true);
@@ -286,14 +364,86 @@ export default function LeaderboardPage() {
                 <TabsTrigger value="global">Global</TabsTrigger>
                 <TabsTrigger value="loop">My Loops</TabsTrigger>
               </TabsList>
-              <TabsContent value="global" className="space-y-2 mt-6">
-                {users.length === 0
-                  ? <p className="text-sm text-muted-foreground">No activity data yet. Start logging to appear on the leaderboard!</p>
-                  : users.map(u => <Row key={u.rank} u={u} />)
-                }
+              <TabsContent value="global" className="mt-6">
+                <div className="flex justify-end mb-3">
+                  <FilterDropdown value={globalFilter} onChange={setGlobalFilter} />
+                </div>
+                {users.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No activity data yet. Start logging to appear on the leaderboard!</p>
+                ) : (() => {
+                  const { visible, you } = applyFilter(users, globalFilter);
+                  return (
+                    <div className="relative">
+                      <div className="space-y-2 pb-2">
+                        {visible.map(u => <Row key={u.rank} u={u} />)}
+                      </div>
+                      {you && (
+                        <div className="sticky bottom-4 mt-2">
+                          <div className="flex items-center gap-3 px-2 py-1 mb-1">
+                            <div className="flex-1 h-px bg-border" />
+                            <span className="text-xs text-muted-foreground">#{you.rank} you</span>
+                            <div className="flex-1 h-px bg-border" />
+                          </div>
+                          <Row u={you} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </TabsContent>
-              <TabsContent value="loop" className="space-y-2 mt-6">
-                {users.slice(0, 5).map(u => <Row key={u.rank} u={u} />)}
+              <TabsContent value="loop" className="mt-6 space-y-4">
+                {myLoops.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">You have not joined any loops yet.</p>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap gap-2">
+                      {myLoops.map(l => (
+                        <button
+                          key={l.id}
+                          onClick={() => setSelectedLoopId(l.id)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                            selectedLoopId === l.id
+                              ? "gradient-bg text-primary-foreground"
+                              : "glass text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {l.name}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex justify-end">
+                      <FilterDropdown value={loopFilter} onChange={setLoopFilter} />
+                    </div>
+                    {loadingLoopBoard ? (
+                      <div className="space-y-2">
+                        {[...Array(4)].map((_, i) => (
+                          <div key={i} className="glass rounded-xl p-4 h-16 animate-pulse" />
+                        ))}
+                      </div>
+                    ) : loopUsers.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No activity logged in this loop yet.</p>
+                    ) : (() => {
+                      const { visible, you } = applyFilter(loopUsers, loopFilter);
+                      return (
+                        <div className="relative">
+                          <div className="space-y-2 pb-2">
+                            {visible.map(u => <Row key={u.rank} u={u} />)}
+                          </div>
+                          {you && (
+                            <div className="sticky bottom-4 mt-2">
+                              <div className="flex items-center gap-3 px-2 py-1 mb-1">
+                                <div className="flex-1 h-px bg-border" />
+                                <span className="text-xs text-muted-foreground">#{you.rank} you</span>
+                                <div className="flex-1 h-px bg-border" />
+                              </div>
+                              <Row u={you} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
               </TabsContent>
             </Tabs>
           </>
