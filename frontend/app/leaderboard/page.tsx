@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trophy, Flame, Medal, Crown, Award, Zap, Star, Ticket, Heart, Tag, Users, ListFilter } from "lucide-react";
+import { Trophy, Flame, Medal, Crown, Award, Zap, Star, Ticket, Heart, Tag, Users, ListFilter, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -96,6 +96,39 @@ function RewardCard({ reward, onClaim, claiming }: {
         )}
       </div>
     </Card>
+  );
+}
+
+type PeriodValue = "week" | "month" | "year" | "all";
+
+const PERIOD_OPTIONS: { label: string; value: PeriodValue }[] = [
+  { label: "This Week",  value: "week" },
+  { label: "This Month", value: "month" },
+  { label: "This Year",  value: "year" },
+  { label: "All Time",   value: "all" },
+];
+
+function PeriodDropdown({ value, onChange }: { value: PeriodValue; onChange: (v: PeriodValue) => void }) {
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v as PeriodValue)}>
+      <SelectTrigger className={cn(
+        "h-8 w-32 rounded-xl text-xs gap-1.5 transition-colors shadow-none glass",
+        "[&>svg:last-child]:h-3 [&>svg:last-child]:w-3 [&>svg:last-child]:opacity-40",
+        value !== "all"
+          ? "border-primary/40 bg-primary/10 text-primary"
+          : "text-muted-foreground hover:text-foreground"
+      )}>
+        <Calendar className="w-3 h-3 shrink-0" />
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="glass-strong border-0 rounded-xl">
+        {PERIOD_OPTIONS.map(opt => (
+          <SelectItem key={opt.value} value={opt.value} className="text-xs rounded-lg">
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -204,18 +237,19 @@ export default function LeaderboardPage() {
   const [globalFilter, setGlobalFilter] = useState<FilterValue>(null);
   const [loopFilter, setLoopFilter] = useState<FilterValue>(null);
   const [activeTab, setActiveTab] = useState("global");
+  const [periodFilter, setPeriodFilter] = useState<PeriodValue>("all");
 
   const token = () => localStorage.getItem("access_token") ?? "";
 
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/api/leaderboard/", {
+    fetch(`http://127.0.0.1:8000/api/leaderboard/?period=${periodFilter}`, {
       headers: { Authorization: `Bearer ${token()}` },
     })
       .then(r => r.json())
       .then(d => setUsers(Array.isArray(d) ? d : []))
       .catch(() => {})
       .finally(() => setLoadingBoard(false));
-  }, []);
+  }, [periodFilter]);
 
   const fetchRewards = useCallback(() => {
     setLoadingRewards(true);
@@ -248,17 +282,19 @@ export default function LeaderboardPage() {
       .catch(() => {});
   }, []);
 
+  const prevLoopId = useRef<number | null>(null);
   useEffect(() => {
     if (!selectedLoopId) return;
-    setLoadingLoopBoard(true);
-    fetch(`http://127.0.0.1:8000/api/loops/${selectedLoopId}/leaderboard/`, {
+    if (selectedLoopId !== prevLoopId.current) setLoadingLoopBoard(true);
+    prevLoopId.current = selectedLoopId;
+    fetch(`http://127.0.0.1:8000/api/loops/${selectedLoopId}/leaderboard/?period=${periodFilter}`, {
       headers: { Authorization: `Bearer ${token()}` },
     })
       .then(r => r.json())
       .then(d => setLoopUsers(Array.isArray(d) ? d : []))
       .catch(() => {})
       .finally(() => setLoadingLoopBoard(false));
-  }, [selectedLoopId]);
+  }, [selectedLoopId, periodFilter]);
 
   const handleClaim = async (rewardId: number) => {
     setClaiming(true);
@@ -281,7 +317,10 @@ export default function LeaderboardPage() {
     }
   };
 
-  const top3 = users.length >= 3 ? [users[1], users[0], users[2]] : [];
+  const podiumSource = activeTab === "loop" ? loopUsers : users;
+  const top3 = podiumSource.length >= 1
+    ? [podiumSource[1] ?? null, podiumSource[0] ?? null, podiumSource[2] ?? null]
+    : users.length >= 3 ? [users[1], users[0], users[2]] : [];
   const byType = (type: string) => rewards.filter(r => r.type === type);
 
   return (
@@ -349,23 +388,38 @@ export default function LeaderboardPage() {
           <>
             {top3.length === 3 && (
               <div className="grid grid-cols-3 gap-3 max-w-2xl">
-                {top3.map((u, i) => (
-                  <Card key={u.name} className={`glass-strong border-0 p-5 text-center ${i === 1 ? "scale-105" : ""} ${u.you ? "ring-2 ring-primary" : ""}`}>
-                    <div className="flex justify-center mb-2">
-                      {u.rank === 1 ? <Crown className="w-6 h-6 text-yellow-400" /> : <Medal className="w-5 h-5 text-muted-foreground" />}
-                    </div>
-                    <div className="w-14 h-14 mx-auto rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold mb-2">
-                      {u.name[0]}
-                    </div>
-                    <div className="font-semibold text-sm">{u.name}</div>
-                    <div className="text-xs text-muted-foreground">{u.points.toLocaleString()} pts</div>
-                    {u.cosmetics.includes("profile_badge") && (
-                      <span className="cosmetic-badge flex justify-center mt-1">
-                        <Award className="w-5 h-5" />
-                      </span>
-                    )}
-                  </Card>
-                ))}
+                {top3.map((u, i) => {
+                  const rankNum = i === 1 ? 1 : i === 0 ? 2 : 3;
+                  if (!u) return (
+                    <Card key={i} className={`glass border-0 p-5 text-center opacity-50 ${i === 1 ? "scale-105" : ""}`}>
+                      <div className="flex justify-center mb-2">
+                        {rankNum === 1 ? <Crown className="w-6 h-6 text-yellow-400/40" /> : <Medal className="w-5 h-5 text-muted-foreground/40" />}
+                      </div>
+                      <div className="w-14 h-14 mx-auto rounded-full border-2 border-dashed border-border flex items-center justify-center text-muted-foreground mb-2">
+                        ?
+                      </div>
+                      <div className="text-xs text-muted-foreground">#{rankNum} open</div>
+                      <div className="text-xs text-muted-foreground/50">— pts</div>
+                    </Card>
+                  );
+                  return (
+                    <Card key={u.name} className={`glass-strong border-0 p-5 text-center ${i === 1 ? "scale-105" : ""} ${u.you ? "ring-2 ring-primary" : ""}`}>
+                      <div className="flex justify-center mb-2">
+                        {u.rank === 1 ? <Crown className="w-6 h-6 text-yellow-400" /> : <Medal className="w-5 h-5 text-muted-foreground" />}
+                      </div>
+                      <div className="w-14 h-14 mx-auto rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold mb-2">
+                        {u.name[0]}
+                      </div>
+                      <div className="font-semibold text-sm">{u.name}</div>
+                      <div className="text-xs text-muted-foreground">{u.points.toLocaleString()} pts</div>
+                      {u.cosmetics.includes("profile_badge") && (
+                        <span className="cosmetic-badge flex justify-center mt-1">
+                          <Award className="w-5 h-5" />
+                        </span>
+                      )}
+                    </Card>
+                  );
+                })}
               </div>
             )}
 
@@ -382,18 +436,19 @@ export default function LeaderboardPage() {
                       onValueChange={(v) => setSelectedLoopId(Number(v))}
                     >
                       <SelectTrigger className={cn("h-8 w-36 rounded-xl text-xs gap-1.5 transition-colors shadow-none glass", "[&>svg:last-child]:h-3 [&>svg:last-child]:w-3 [&>svg:last-child]:opacity-40", "text-muted-foreground hover:text-foreground")}>
-                        <Users className="w-3 h-3 shrink-0 text-muted-foreground" />
+                        <Users className="w-3 h-3 shrink-0" />
                         <SelectValue placeholder="Select loop" />
                       </SelectTrigger>
-                      <SelectContent className="glass-strong border-0">
+                      <SelectContent className="glass-strong border-0 rounded-xl">
                         {myLoops.map(l => (
-                          <SelectItem key={l.id} value={String(l.id)} className="text-xs">
+                          <SelectItem key={l.id} value={String(l.id)} className="text-xs rounded-lg">
                             {l.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   )}
+                  <PeriodDropdown value={periodFilter} onChange={setPeriodFilter} />
                   <FilterDropdown
                     value={activeTab === "global" ? globalFilter : loopFilter}
                     onChange={activeTab === "global" ? setGlobalFilter : setLoopFilter}

@@ -606,6 +606,44 @@ def compute_user_points(user, profile=None):
     return total
 
 
+def compute_period_points(user, start_date, profile=None):
+    from django.utils import timezone
+    if profile is None:
+        try:
+            profile = user.userprofile
+        except UserProfile.DoesNotExist:
+            profile = None
+
+    is_premium = profile.is_premium_active if profile else False
+    daily_cap = DAILY_CAP_PREMIUM if is_premium else DAILY_CAP_FREE
+
+    logs = (
+        ActivityLog.objects
+        .filter(user=user, logged_at__date__gte=start_date)
+        .order_by('logged_at')
+        .values('activity', 'duration', 'steps', 'calories', 'logged_at')
+    )
+
+    logs_by_date = defaultdict(list)
+    for log in logs:
+        logs_by_date[log['logged_at'].date()].append(log)
+
+    total = 0
+    for date in sorted(logs_by_date):
+        day_pts = 0
+        seen = set()
+        for log in logs_by_date[date]:
+            pts = calc_session_points(log['duration'], log['steps'], log['calories'])
+            key = log['activity'].lower()
+            if key in seen:
+                pts = int(pts * DUPLICATE_ACTIVITY_POINT_MULTIPLIER)
+            seen.add(key)
+            day_pts += pts
+        total += min(day_pts, daily_cap)
+
+    return total
+
+
 def get_available_points(user, profile=None):
     from django.db.models import Sum
     earned = compute_user_points(user, profile)
@@ -965,11 +1003,27 @@ def get_activities_view(request):
     return Response(data)
 
 
+def _get_period_start(period):
+    from django.utils import timezone
+    from datetime import timedelta
+    today = timezone.now().date()
+    if period == 'week':
+        return today - timedelta(days=7)
+    if period == 'month':
+        return today.replace(day=1)
+    if period == 'year':
+        return today.replace(month=1, day=1)
+    return None
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def leaderboard_view(request):
     from django.utils import timezone
     from datetime import timedelta
+
+    period = request.GET.get('period', 'all')
+    start_date = _get_period_start(period)
 
     user_ids = ActivityLog.objects.values_list('user_id', flat=True).distinct()
     users = User.objects.filter(id__in=user_ids).select_related('userprofile')
@@ -981,7 +1035,11 @@ def leaderboard_view(request):
         except UserProfile.DoesNotExist:
             profile = None
 
-        total_points = compute_user_points(user, profile)
+        total_points = (
+            compute_period_points(user, start_date, profile)
+            if start_date else
+            compute_user_points(user, profile)
+        )
 
         logs_dates = set(
             ActivityLog.objects.filter(user=user).values_list('logged_at__date', flat=True)
@@ -1022,6 +1080,9 @@ def loop_leaderboard_view(request, loop_id):
     from django.utils import timezone
     from datetime import timedelta
 
+    period = request.GET.get('period', 'all')
+    start_date = _get_period_start(period)
+
     try:
         loop = Loop.objects.get(id=loop_id)
     except Loop.DoesNotExist:
@@ -1043,7 +1104,11 @@ def loop_leaderboard_view(request, loop_id):
         except UserProfile.DoesNotExist:
             profile = None
 
-        total_points = compute_user_points(user, profile)
+        total_points = (
+            compute_period_points(user, start_date, profile)
+            if start_date else
+            compute_user_points(user, profile)
+        )
 
         logs_dates = set(
             ActivityLog.objects.filter(user=user).values_list('logged_at__date', flat=True)
