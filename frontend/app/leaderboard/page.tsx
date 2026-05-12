@@ -412,6 +412,13 @@ export default function LeaderboardPage() {
                       </div>
                       <div className="font-semibold text-sm">{u.name}</div>
                       <div className="text-xs text-muted-foreground">{u.points.toLocaleString()} pts</div>
+                      <div className="flex items-center justify-center gap-1 mt-0.5">
+                        {u.cosmetics.includes("streak_flame")
+                          ? <span className="cosmetic-flame"><Flame className="w-3 h-3" /></span>
+                          : <Flame className="w-3 h-3 text-muted-foreground" />
+                        }
+                        <span className="text-xs text-muted-foreground">{u.streak}d</span>
+                      </div>
                       {u.cosmetics.includes("profile_badge") && (
                         <span className="cosmetic-badge flex justify-center mt-1">
                           <Award className="w-5 h-5" />
