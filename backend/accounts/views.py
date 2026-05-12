@@ -1143,6 +1143,111 @@ def loop_leaderboard_view(request, loop_id):
     return Response(leaderboard)
 
 
+# ─── Profile ──────────────────────────────────────────────────────────────────
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def profile_view(request):
+    from django.utils import timezone
+
+    user = request.user
+    try:
+        profile = user.userprofile
+    except UserProfile.DoesNotExist:
+        profile = UserProfile.objects.create(user=user)
+
+    if request.method == 'PATCH':
+        data = request.data
+        if 'first_name' in data:
+            user.first_name = data['first_name'].strip()
+        if 'last_name' in data:
+            user.last_name = data['last_name'].strip()
+        user.save()
+        if 'bio' in data:
+            profile.bio = data['bio']
+        if 'is_public' in data:
+            profile.is_public = bool(data['is_public'])
+        profile.save()
+
+    # ── Lifetime stats ──
+    total_points = compute_user_points(user, profile)
+    total_activities = ActivityLog.objects.filter(user=user).count()
+
+    logs_dates = sorted(set(
+        ActivityLog.objects.filter(user=user).values_list('logged_at__date', flat=True)
+    ))
+    best_streak = 0
+    if logs_dates:
+        from datetime import timedelta
+        best = current = 1
+        for i in range(1, len(logs_dates)):
+            if (logs_dates[i] - logs_dates[i - 1]).days == 1:
+                current += 1
+                best = max(best, current)
+            else:
+                current = 1
+        best_streak = best
+
+    loops_count = LoopMembership.objects.filter(
+        user=user, status='approved'
+    ).count() + Loop.objects.filter(created_by=user).count()
+
+    # ── Cosmetics ──
+    from django.db.models import Q
+    claimed = ClaimedReward.objects.filter(
+        user=user, reward__type='cosmetic'
+    ).select_related('reward')
+    active_effects = set(
+        claimed.filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())
+        ).values_list('reward__effect', flat=True)
+    )
+    cosmetics = [{
+        'id': c.id,
+        'name': c.reward.name,
+        'effect': c.reward.effect,
+        'icon': c.reward.icon,
+        'color': c.reward.color,
+        'is_active': c.reward.effect in active_effects,
+        'claimed_at': c.claimed_at.strftime('%b %d, %Y'),
+    } for c in claimed]
+
+    # ── Loops ──
+    memberships = LoopMembership.objects.filter(
+        user=user, status='approved'
+    ).select_related('loop')
+    created = Loop.objects.filter(created_by=user)
+    loop_ids_seen = set()
+    loops = []
+    for m in memberships:
+        loop_ids_seen.add(m.loop.id)
+        loops.append({'id': m.loop.id, 'name': m.loop.name, 'image_url': m.loop.image_url})
+    for l in created:
+        if l.id not in loop_ids_seen:
+            loops.append({'id': l.id, 'name': l.name, 'image_url': l.image_url})
+
+    full_name = f"{user.first_name} {user.last_name}".strip() or user.email.split('@')[0]
+
+    return Response({
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+        'full_name': full_name,
+        'email': user.email,
+        'bio': profile.bio,
+        'is_public': profile.is_public,
+        'is_premium': profile.is_premium_active,
+        'member_since': user.date_joined.strftime('%b %Y'),
+        'stats': {
+            'total_points': total_points,
+            'total_activities': total_activities,
+            'best_streak': best_streak,
+            'loops_count': loops_count,
+        },
+        'cosmetics': cosmetics,
+        'loops': loops,
+    })
+
+
 # ─── Rewards ──────────────────────────────────────────────────────────────────
 
 @api_view(['GET'])

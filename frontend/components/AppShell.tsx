@@ -59,7 +59,7 @@ function loadUser(): User | null {
 // ─── Notification icon ────────────────────────────────────────────────────────
 
 function NotifIcon({ type }: { type: Notification["type"] }) {
-  const base = "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0";
+  const base = "w-8 h-8 rounded-full flex items-center justify-center shrink-0";
   if (type === "like") return <div className={`${base} bg-red-100`}><Heart className="w-4 h-4 text-red-500" /></div>;
   if (type === "comment") return <div className={`${base} bg-blue-100`}><MessageCircle className="w-4 h-4 text-blue-500" /></div>;
   if (type === "join") return <div className={`${base} bg-green-100`}><UserPlus className="w-4 h-4 text-green-500" /></div>;
@@ -210,7 +210,7 @@ function NotificationBell() {
                       <p className="text-[11px] text-muted-foreground mt-0.5">{n.time}</p>
                     </div>
                     {!n.read && (
-                      <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0" />
+                      <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
                     )}
                   </button>
                 ))
@@ -352,20 +352,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* ── User profile — NO bell here ── */}
+          {/* ── User profile ── */}
           <div className="glass rounded-xl p-3 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
-              {initials}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{displayName}</div>
-              <div className="text-xs text-muted-foreground">
-                {isPremium === null ? "—" : isPremium ? "Premium" : "Free"}
+            <Link href="/profile" className="flex items-center gap-3 flex-1 min-w-0 rounded-lg hover:bg-accent transition-colors -mx-1 px-1 py-1">
+              <div className="w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm shrink-0">
+                {initials}
               </div>
-            </div>
-            <button onClick={handleLogout}
-              className="text-muted-foreground hover:text-red-500 transition-colors" title="Logout">
-              <LogOut className="w-4 h-4" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium leading-tight wrap-break-word">{displayName}</div>
+                <div className="text-xs text-muted-foreground">
+                  {isPremium === null ? "—" : isPremium ? "Premium" : "Free"}
+                </div>
+              </div>
+            </Link>
+            <button
+              onClick={handleLogout}
+              title="Logout"
+              className="relative group shrink-0 w-8 h-8 flex items-center justify-center"
+            >
+              <span className="absolute inset-0 rounded-full bg-red-500/0 scale-0 group-hover:bg-red-500/12 group-hover:scale-100 transition-all duration-200 ease-out" />
+              <LogOut className="w-4 h-4 text-muted-foreground group-hover:text-red-500 transition-colors duration-200 relative z-10" />
             </button>
           </div>
         </div>

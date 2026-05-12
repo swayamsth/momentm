@@ -47,6 +47,8 @@ class UserProfile(models.Model):
     two_factor_otp_created_at = models.DateTimeField(blank=True, null=True)
     is_premium = models.BooleanField(default=False)
     premium_expires_at = models.DateTimeField(blank=True, null=True)
+    bio = models.TextField(blank=True, default='')
+    is_public = models.BooleanField(default=True)
 
     @property
     def is_premium_active(self):
