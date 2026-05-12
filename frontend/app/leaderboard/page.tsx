@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trophy, Flame, Medal, Crown, Award, Zap, Star, Ticket, Heart, Tag, Users, ListFilter } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
 
 type UserLoop = {
   id: number;
@@ -108,18 +109,25 @@ const FILTER_OPTIONS: { label: string; value: FilterValue }[] = [
 ];
 
 function FilterDropdown({ value, onChange }: { value: FilterValue; onChange: (v: FilterValue) => void }) {
+  const isActive = value !== null;
   return (
     <Select
       value={String(value)}
       onValueChange={(v) => onChange(v === "null" ? null : (Number(v) as FilterValue))}
     >
-      <SelectTrigger className="glass border-0 text-xs h-8 w-32 gap-1.5">
-        <ListFilter className="w-3 h-3 shrink-0 text-muted-foreground" />
+      <SelectTrigger className={cn(
+        "h-8 w-32 rounded-xl text-xs gap-1.5 transition-colors shadow-none glass",
+        "[&>svg:last-child]:h-3 [&>svg:last-child]:w-3 [&>svg:last-child]:opacity-40",
+        isActive
+          ? "border-primary/40 bg-primary/10 text-primary"
+          : "text-muted-foreground hover:text-foreground"
+      )}>
+        <ListFilter className="w-3 h-3 shrink-0" />
         <SelectValue />
       </SelectTrigger>
-      <SelectContent className="glass-strong border-0">
+      <SelectContent className="glass-strong border-0 rounded-xl">
         {FILTER_OPTIONS.map(opt => (
-          <SelectItem key={String(opt.value)} value={String(opt.value)} className="text-xs">
+          <SelectItem key={String(opt.value)} value={String(opt.value)} className="text-xs rounded-lg">
             {opt.label}
           </SelectItem>
         ))}
@@ -373,7 +381,7 @@ export default function LeaderboardPage() {
                       value={String(selectedLoopId)}
                       onValueChange={(v) => setSelectedLoopId(Number(v))}
                     >
-                      <SelectTrigger className="glass border-0 text-xs h-8 w-36 gap-1.5">
+                      <SelectTrigger className={cn("h-8 w-36 rounded-xl text-xs gap-1.5 transition-colors shadow-none glass", "[&>svg:last-child]:h-3 [&>svg:last-child]:w-3 [&>svg:last-child]:opacity-40", "text-muted-foreground hover:text-foreground")}>
                         <Users className="w-3 h-3 shrink-0 text-muted-foreground" />
                         <SelectValue placeholder="Select loop" />
                       </SelectTrigger>
