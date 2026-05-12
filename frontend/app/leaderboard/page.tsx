@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trophy, Flame, Medal, Crown, Award, Zap, Star, Ticket, Heart, Tag } from "lucide-react";
+import { Trophy, Flame, Medal, Crown, Award, Zap, Star, Ticket, Heart, Tag, Users, ListFilter } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
@@ -113,7 +113,8 @@ function FilterDropdown({ value, onChange }: { value: FilterValue; onChange: (v:
       value={String(value)}
       onValueChange={(v) => onChange(v === "null" ? null : (Number(v) as FilterValue))}
     >
-      <SelectTrigger className="w-36 glass border-0 text-xs h-8">
+      <SelectTrigger className="glass border-0 text-xs h-8 w-32 gap-1.5">
+        <ListFilter className="w-3 h-3 shrink-0 text-muted-foreground" />
         <SelectValue />
       </SelectTrigger>
       <SelectContent className="glass-strong border-0">
@@ -194,6 +195,7 @@ export default function LeaderboardPage() {
   const [loadingLoopBoard, setLoadingLoopBoard] = useState(false);
   const [globalFilter, setGlobalFilter] = useState<FilterValue>(null);
   const [loopFilter, setLoopFilter] = useState<FilterValue>(null);
+  const [activeTab, setActiveTab] = useState("global");
 
   const token = () => localStorage.getItem("access_token") ?? "";
 
@@ -359,15 +361,38 @@ export default function LeaderboardPage() {
               </div>
             )}
 
-            <Tabs defaultValue="global">
-              <TabsList className="glass">
-                <TabsTrigger value="global">Global</TabsTrigger>
-                <TabsTrigger value="loop">My Loops</TabsTrigger>
-              </TabsList>
-              <TabsContent value="global" className="mt-6">
-                <div className="flex justify-end mb-3">
-                  <FilterDropdown value={globalFilter} onChange={setGlobalFilter} />
+            <Tabs defaultValue="global" value={activeTab} onValueChange={setActiveTab}>
+              <div className="flex items-center justify-between gap-3">
+                <TabsList className="glass">
+                  <TabsTrigger value="global">Global</TabsTrigger>
+                  <TabsTrigger value="loop">My Loops</TabsTrigger>
+                </TabsList>
+                <div className="flex items-center gap-2">
+                  {activeTab === "loop" && myLoops.length > 0 && (
+                    <Select
+                      value={String(selectedLoopId)}
+                      onValueChange={(v) => setSelectedLoopId(Number(v))}
+                    >
+                      <SelectTrigger className="glass border-0 text-xs h-8 w-36 gap-1.5">
+                        <Users className="w-3 h-3 shrink-0 text-muted-foreground" />
+                        <SelectValue placeholder="Select loop" />
+                      </SelectTrigger>
+                      <SelectContent className="glass-strong border-0">
+                        {myLoops.map(l => (
+                          <SelectItem key={l.id} value={String(l.id)} className="text-xs">
+                            {l.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <FilterDropdown
+                    value={activeTab === "global" ? globalFilter : loopFilter}
+                    onChange={activeTab === "global" ? setGlobalFilter : setLoopFilter}
+                  />
                 </div>
+              </div>
+              <TabsContent value="global" className="mt-3">
                 {users.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No activity data yet. Start logging to appear on the leaderboard!</p>
                 ) : (() => {
@@ -391,29 +416,11 @@ export default function LeaderboardPage() {
                   );
                 })()}
               </TabsContent>
-              <TabsContent value="loop" className="mt-6 space-y-4">
+              <TabsContent value="loop" className="mt-3 space-y-3">
                 {myLoops.length === 0 ? (
                   <p className="text-sm text-muted-foreground">You have not joined any loops yet.</p>
                 ) : (
                   <>
-                    <div className="flex flex-wrap gap-2">
-                      {myLoops.map(l => (
-                        <button
-                          key={l.id}
-                          onClick={() => setSelectedLoopId(l.id)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
-                            selectedLoopId === l.id
-                              ? "gradient-bg text-primary-foreground"
-                              : "glass text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          {l.name}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex justify-end">
-                      <FilterDropdown value={loopFilter} onChange={setLoopFilter} />
-                    </div>
                     {loadingLoopBoard ? (
                       <div className="space-y-2">
                         {[...Array(4)].map((_, i) => (
