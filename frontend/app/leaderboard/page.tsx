@@ -111,15 +111,15 @@ function Row({ u }: { u: LeaderboardUser }) {
       <div className="flex-1 min-w-0">
         <div className="font-medium text-sm flex items-center gap-1.5 flex-wrap">
           {u.name}
-          {hasBadge && <Award className="w-3.5 h-3.5 text-yellow-400" />}
-          {hasTitle && <span className="text-xs text-muted-foreground italic">Iron Athlete</span>}
+          {hasBadge && <span className="cosmetic-badge"><Award className="w-5 h-5" /></span>}
+          {hasTitle && <span className="cosmetic-title">Iron Athlete</span>}
           {u.you && <Badge variant="secondary" className="text-xs">You</Badge>}
           {u.is_premium && <Badge className="text-xs gradient-bg border-0 text-primary-foreground">Premium</Badge>}
         </div>
         <div className="text-xs text-muted-foreground flex items-center gap-1">
           {hasFlame
-            ? <Flame className="w-3 h-3 text-orange-400" />
-            : <Flame className="w-3 h-3" />
+            ? <span className="cosmetic-flame"><Flame className="w-4 h-4" /></span>
+            : <Flame className="w-3.5 h-3.5" />
           }
           {u.streak} day streak
         </div>
@@ -272,7 +272,9 @@ export default function LeaderboardPage() {
                     <div className="font-semibold text-sm">{u.name}</div>
                     <div className="text-xs text-muted-foreground">{u.points.toLocaleString()} pts</div>
                     {u.cosmetics.includes("profile_badge") && (
-                      <Award className="w-3.5 h-3.5 text-yellow-400 mx-auto mt-1" />
+                      <span className="cosmetic-badge flex justify-center mt-1">
+                        <Award className="w-5 h-5" />
+                      </span>
                     )}
                   </Card>
                 ))}
