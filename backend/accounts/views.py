@@ -1049,7 +1049,11 @@ def rewards_view(request):
             'in_stock': has_codes,
         })
 
-    return Response({'available_points': available, 'rewards': data})
+    return Response({
+        'available_points': available,
+        'is_premium': profile.is_premium_active,
+        'rewards': data,
+    })
 
 
 @api_view(['POST'])
