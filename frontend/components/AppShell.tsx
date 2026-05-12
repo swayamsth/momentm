@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Sparkles, Users, Trophy, CreditCard,
   LogOut, Activity, Menu, X, Bell, Heart, MessageCircle,
-  UserCheck, UserPlus, Check,
+  UserCheck, UserPlus, Check, Gift,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ const nav = [
   { to: "/ai", label: "Momentm AI", icon: Sparkles },
   { to: "/loops", label: "Loops", icon: Users },
   { to: "/leaderboard", label: "Leaderboard", icon: Trophy },
+  { to: "/rewards", label: "My Rewards", icon: Gift },
   { to: "/coaching", label: "Coaching", icon: CreditCard },
 ];
 

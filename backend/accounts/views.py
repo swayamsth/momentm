@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import SignupSerializer
-from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership
+from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership, Reward, RewardCode, ClaimedReward
 import uuid
 import os
 
@@ -556,6 +556,74 @@ def calc_session_points(duration, steps, calories):
     return base + intensity
 
 
+def compute_user_points(user, profile=None):
+    from django.db.models import Q
+    if profile is None:
+        try:
+            profile = user.userprofile
+        except UserProfile.DoesNotExist:
+            profile = None
+
+    is_premium = profile.is_premium_active if profile else False
+    daily_cap = DAILY_CAP_PREMIUM if is_premium else DAILY_CAP_FREE
+
+    logs = (
+        ActivityLog.objects
+        .filter(user=user)
+        .order_by('logged_at')
+        .values('activity', 'duration', 'steps', 'calories', 'logged_at')
+    )
+
+    logs_by_date = defaultdict(list)
+    for log in logs:
+        logs_by_date[log['logged_at'].date()].append(log)
+
+    total = 0
+    consecutive = 0
+    prev_date = None
+
+    for date in sorted(logs_by_date):
+        if prev_date is None or (date - prev_date).days == 1:
+            consecutive += 1
+        else:
+            consecutive = 1
+        prev_date = date
+
+        day_pts = FIRST_LOG_BONUS
+        seen = set()
+        for log in logs_by_date[date]:
+            pts = calc_session_points(log['duration'], log['steps'], log['calories'])
+            key = log['activity'].lower()
+            if key in seen:
+                pts = int(pts * DUPLICATE_ACTIVITY_POINT_MULTIPLIER)
+            seen.add(key)
+            day_pts += pts
+
+        day_pts = min(day_pts, daily_cap)
+        day_pts = round(day_pts * get_streak_multiplier(consecutive, is_premium))
+        total += day_pts
+
+    return total
+
+
+def get_available_points(user, profile=None):
+    from django.db.models import Sum
+    earned = compute_user_points(user, profile)
+    spent = ClaimedReward.objects.filter(user=user).aggregate(t=Sum('cost_at_claim'))['t'] or 0
+    return max(0, earned - spent)
+
+
+def get_active_cosmetics(user):
+    from django.utils import timezone
+    from django.db.models import Q
+    return list(
+        ClaimedReward.objects
+        .filter(user=user, reward__type='cosmetic')
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+        .values_list('reward__effect', flat=True)
+    )
+
+
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def edit_comment_view(request, comment_id):
@@ -909,75 +977,35 @@ def leaderboard_view(request):
     leaderboard = []
     for user in users:
         try:
-            is_premium = user.userprofile.is_premium
+            profile = user.userprofile
         except UserProfile.DoesNotExist:
-            is_premium = False
+            profile = None
 
-        daily_cap = DAILY_CAP_PREMIUM if is_premium else DAILY_CAP_FREE
+        total_points = compute_user_points(user, profile)
 
-        logs = (
-            ActivityLog.objects
-            .filter(user=user)
-            .order_by('logged_at')
-            .values('activity', 'duration', 'steps', 'calories', 'logged_at')
+        logs_dates = set(
+            ActivityLog.objects.filter(user=user).values_list('logged_at__date', flat=True)
         )
-
-        # Group logs by calendar date
-        logs_by_date = defaultdict(list)
-        for log in logs:
-            logs_by_date[log['logged_at'].date()].append(log)
-
-        total_points = 0
-        consecutive_days = 0
-        prev_date = None
-
-        for date in sorted(logs_by_date):
-            # Track streak length up to and including this date
-            if prev_date is None or (date - prev_date).days == 1:
-                consecutive_days += 1
-            else:
-                consecutive_days = 1
-            prev_date = date
-
-            # First-log bonus for showing up
-            day_points = FIRST_LOG_BONUS
-            seen_activities = set()
-
-            for log in logs_by_date[date]:
-                pts = calc_session_points(log['duration'], log['steps'], log['calories'])
-                activity_key = log['activity'].lower()
-                if activity_key in seen_activities:
-                    pts = int(pts * DUPLICATE_ACTIVITY_POINT_MULTIPLIER)
-                seen_activities.add(activity_key)
-                day_points += pts
-
-            # Cap raw daily points before applying the streak bonus
-            day_points = min(day_points, daily_cap)
-
-            # Streak multiplier is a bonus on top — earned points already banked are untouched
-            day_points = round(day_points * get_streak_multiplier(consecutive_days, is_premium))
-            total_points += day_points
-
-        # Current display streak (may differ from the streak at last log date)
         today = timezone.now().date()
-        all_dates = set(logs_by_date.keys())
         display_streak = 0
         current = today
-        while current in all_dates:
+        while current in logs_dates:
             display_streak += 1
             current -= timedelta(days=1)
         if display_streak == 0:
             current = today - timedelta(days=1)
-            while current in all_dates:
+            while current in logs_dates:
                 display_streak += 1
                 current -= timedelta(days=1)
 
+        cosmetics = get_active_cosmetics(user)
         full_name = f"{user.first_name} {user.last_name}".strip() or user.email.split('@')[0]
         leaderboard.append({
             'name': full_name,
             'points': total_points,
             'streak': display_streak,
-            'is_premium': is_premium,
+            'is_premium': profile.is_premium_active if profile else False,
+            'cosmetics': cosmetics,
             'you': user.id == request.user.id,
         })
 
@@ -986,3 +1014,128 @@ def leaderboard_view(request):
         entry['rank'] = i + 1
 
     return Response(leaderboard)
+
+
+# ─── Rewards ──────────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def rewards_view(request):
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    available = get_available_points(request.user, profile)
+
+    claimed_reward_ids = set(
+        ClaimedReward.objects.filter(user=request.user).values_list('reward_id', flat=True)
+    )
+
+    rewards = Reward.objects.filter(is_active=True)
+    data = []
+    for r in rewards:
+        has_codes = True
+        if r.type == 'real_world' and r.effect == 'discount':
+            has_codes = RewardCode.objects.filter(reward=r, is_claimed=False).exists()
+        data.append({
+            'id': r.id,
+            'name': r.name,
+            'description': r.description,
+            'type': r.type,
+            'effect': r.effect,
+            'cost': r.cost,
+            'icon': r.icon,
+            'color': r.color,
+            'metadata': r.metadata,
+            'claimed': r.id in claimed_reward_ids,
+            'can_afford': available >= r.cost,
+            'in_stock': has_codes,
+        })
+
+    return Response({'available_points': available, 'rewards': data})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def claim_reward_view(request, reward_id):
+    from django.utils import timezone
+    from datetime import timedelta
+    from django.db.models import Q
+
+    try:
+        reward = Reward.objects.get(id=reward_id, is_active=True)
+    except Reward.DoesNotExist:
+        return Response({'error': 'Reward not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    available = get_available_points(request.user, profile)
+
+    if available < reward.cost:
+        return Response({
+            'error': f'Not enough points. You need {reward.cost:,} but have {available:,}.'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    code = ''
+    expires_at = None
+
+    if reward.type == 'cosmetic':
+        already_active = ClaimedReward.objects.filter(
+            user=request.user, reward=reward
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).exists()
+        if already_active:
+            return Response({'error': 'You already have this reward active.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    elif reward.type == 'subscription':
+        duration_days = reward.metadata.get('duration_days', 7)
+        now = timezone.now()
+        if profile.is_premium and profile.premium_expires_at and profile.premium_expires_at > now:
+            profile.premium_expires_at += timedelta(days=duration_days)
+        else:
+            profile.is_premium = True
+            profile.premium_expires_at = now + timedelta(days=duration_days)
+        profile.save()
+        expires_at = profile.premium_expires_at
+
+    elif reward.type == 'real_world' and reward.effect == 'discount':
+        reward_code = RewardCode.objects.filter(reward=reward, is_claimed=False).first()
+        if not reward_code:
+            return Response(
+                {'error': 'No codes available right now — please try again soon.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        code = reward_code.code
+        reward_code.is_claimed = True
+        reward_code.save()
+
+    claimed = ClaimedReward.objects.create(
+        user=request.user,
+        reward=reward,
+        cost_at_claim=reward.cost,
+        code=code,
+        expires_at=expires_at,
+    )
+
+    return Response({
+        'message': f'Successfully claimed {reward.name}!',
+        'claimed_id': claimed.id,
+        'reward_type': reward.type,
+        'effect': reward.effect,
+        'code': code,
+        'expires_at': expires_at.isoformat() if expires_at else None,
+        'available_points': get_available_points(request.user, profile),
+    }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def claimed_rewards_view(request):
+    claims = ClaimedReward.objects.filter(user=request.user).select_related('reward')
+    return Response([{
+        'id': c.id,
+        'reward_name': c.reward.name,
+        'reward_type': c.reward.type,
+        'reward_effect': c.reward.effect,
+        'reward_icon': c.reward.icon,
+        'reward_color': c.reward.color,
+        'cost': c.cost_at_claim,
+        'code': c.code,
+        'claimed_at': c.claimed_at.strftime('%b %d, %Y'),
+        'expires_at': c.expires_at.strftime('%b %d, %Y') if c.expires_at else None,
+    } for c in claims])

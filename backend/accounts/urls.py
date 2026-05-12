@@ -41,7 +41,13 @@ urlpatterns = [
     # Notifications
     path('notifications/', views.get_notifications_view, name='notifications'),
     # Activities
+    # Activities
     path('activities/', views.get_activities_view, name='get-activities'),
     path('activities/log/', views.log_activity_view, name='log-activity'),
+    # Leaderboard
     path('leaderboard/', views.leaderboard_view, name='leaderboard'),
+    # Rewards
+    path('rewards/', views.rewards_view, name='rewards'),
+    path('rewards/<int:reward_id>/claim/', views.claim_reward_view, name='claim-reward'),
+    path('rewards/claimed/', views.claimed_rewards_view, name='claimed-rewards'),
 ]
