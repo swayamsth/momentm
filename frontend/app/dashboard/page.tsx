@@ -20,6 +20,9 @@ import {
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
+// ── Use env var so it works in Docker (backend:8000) and locally (127.0.0.1:8000)
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+
 const ACTIVITY_TYPES = [
   "Run", "Swim", "Cycle", "Skipping", "Strength", "Sports", "Walk", "Yoga", "HIIT", "Other"
 ];
@@ -61,6 +64,60 @@ function isToday(loggedAt: string): boolean {
   return loggedAt.startsWith(todayStr);
 }
 
+// Parse "May 04, 19:30" → a Date object (uses current year)
+function parseLoggedAt(loggedAt: string): Date | null {
+  try {
+    const year = new Date().getFullYear();
+    return new Date(`${loggedAt} ${year}`);
+  } catch {
+    return null;
+  }
+}
+
+// Calculate streak from activity logs (consecutive days with at least one log)
+function calcStreak(logs: ActivityLog[]): number {
+  if (logs.length === 0) return 0;
+
+  // Collect unique calendar dates from logs
+  const dateStrings = new Set<string>();
+  for (const log of logs) {
+    const d = parseLoggedAt(log.logged_at);
+    if (d) dateStrings.add(d.toDateString());
+  }
+
+  let streak = 0;
+  const check = new Date();
+  check.setHours(0, 0, 0, 0);
+
+  // Walk backwards from today; stop as soon as a day has no activity
+  while (dateStrings.has(check.toDateString())) {
+    streak++;
+    check.setDate(check.getDate() - 1);
+  }
+
+  // If today has no log yet, also check starting from yesterday
+  if (streak === 0) {
+    check.setDate(check.getDate() - 1);
+    while (dateStrings.has(check.toDateString())) {
+      streak++;
+      check.setDate(check.getDate() - 1);
+    }
+  }
+
+  return streak;
+}
+
+// Count activities logged in the last 7 days
+function countWeeklyWorkouts(logs: ActivityLog[]): number {
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  weekAgo.setHours(0, 0, 0, 0);
+  return logs.filter((a) => {
+    const d = parseLoggedAt(a.logged_at);
+    return d && d >= weekAgo;
+  }).length;
+}
+
 function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<{ email: string; first_name: string; last_name: string; two_factor_enabled?: boolean } | null>(null);
@@ -99,7 +156,7 @@ function Dashboard() {
 
   const fetchActivities = async (token: string) => {
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/activities/", {
+      const res = await fetch(`${API}/activities/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -117,7 +174,7 @@ function Dashboard() {
     const stored = localStorage.getItem("user");
     if (!token || !stored) { router.push("/"); return; }
     setUser(JSON.parse(stored));
-    fetch("http://127.0.0.1:8000/api/dashboard/", {
+    fetch(`${API}/dashboard/`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
@@ -139,7 +196,7 @@ function Dashboard() {
     const token = localStorage.getItem("access_token");
     if (!token) return;
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/activities/log/", {
+      const res = await fetch(`${API}/activities/log/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -169,7 +226,7 @@ function Dashboard() {
 
   const handleLogout = () => {
     const refresh = localStorage.getItem("refresh_token");
-    fetch("http://127.0.0.1:8000/api/logout/", {
+    fetch(`${API}/logout/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh }),
@@ -191,6 +248,10 @@ function Dashboard() {
   const todayActivities = activities.filter((a) => isToday(a.logged_at));
   const totalStepsToday = todayActivities.reduce((sum, a) => sum + a.steps, 0);
   const totalCaloriesToday = todayActivities.reduce((sum, a) => sum + a.calories, 0);
+
+  // Real calculated values from activity data
+  const currentStreak = calcStreak(activities);
+  const weeklyWorkouts = countWeeklyWorkouts(activities);
 
   const displayName = user?.first_name || user?.email?.split("@")[0] || "there";
 
@@ -307,12 +368,12 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* Stats - now shows today's cumulative totals, resets at midnight */}
+        {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Stat icon={Footprints} label="Steps today" value={totalStepsToday.toLocaleString()} unit="steps" trend={12} color="oklch(0.6 0.22 255)" />
           <Stat icon={Flame} label="Calories burned" value={totalCaloriesToday.toLocaleString()} unit="kcal" trend={8} color="oklch(0.62 0.22 25)" />
           <Stat icon={Moon} label="Sleep" value="7.4" unit="hrs" trend={5} color="oklch(0.55 0.18 300)" />
-          <Stat icon={TrendingUp} label="Streak" value="23" unit="days" trend={15} color="oklch(0.7 0.16 155)" />
+          <Stat icon={TrendingUp} label="Streak" value={currentStreak} unit="days" trend={15} color="oklch(0.7 0.16 155)" />
         </div>
 
         {/* Charts */}
@@ -350,31 +411,31 @@ function Dashboard() {
           </Card>
 
           <Card className="glass border-0 p-6">
-          <h3 className="font-semibold mb-1">Consistency score</h3>
-          <p className="text-xs text-muted-foreground mb-4">This week</p>
-          <div className="relative h-44">
-            <ResponsiveContainer>
-              <RadialBarChart innerRadius="72%" outerRadius="100%" data={[{ name: "score", value: 84, fill: "oklch(0.6 0.22 255)" }]} startAngle={90} endAngle={-270}>
-                <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                <RadialBar dataKey="value" cornerRadius={20} background={{ fill: "oklch(0.94 0.01 140)" }} />
-              </RadialBarChart>
-            </ResponsiveContainer>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <div className="text-4xl font-semibold tracking-tight tabular-nums">84<span className="text-lg text-muted-foreground font-normal">%</span></div>
-              <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground mt-1">Excellent</div>
-            </div>
-          </div>
-          <div className="flex justify-between gap-1 mt-4">
-            {consistency.map((c) => (
-              <div key={c.day} className="flex-1 text-center">
-                <div className="h-12 bg-muted rounded relative overflow-hidden">
-                  <div className="absolute bottom-0 inset-x-0 gradient-bg rounded" style={{ height: `${c.v}%` }} />
-                </div>
-                <div className="text-[10px] text-muted-foreground mt-1">{c.day[0]}</div>
+            <h3 className="font-semibold mb-1">Consistency score</h3>
+            <p className="text-xs text-muted-foreground mb-4">This week</p>
+            <div className="relative h-44">
+              <ResponsiveContainer>
+                <RadialBarChart innerRadius="72%" outerRadius="100%" data={[{ name: "score", value: 84, fill: "oklch(0.6 0.22 255)" }]} startAngle={90} endAngle={-270}>
+                  <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+                  <RadialBar dataKey="value" cornerRadius={20} background={{ fill: "oklch(0.94 0.01 140)" }} />
+                </RadialBarChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <div className="text-4xl font-semibold tracking-tight tabular-nums">84<span className="text-lg text-muted-foreground font-normal">%</span></div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground mt-1">Excellent</div>
               </div>
-            ))}
-          </div>
-        </Card>
+            </div>
+            <div className="flex justify-between gap-1 mt-4">
+              {consistency.map((c) => (
+                <div key={c.day} className="flex-1 text-center">
+                  <div className="h-12 bg-muted rounded relative overflow-hidden">
+                    <div className="absolute bottom-0 inset-x-0 gradient-bg rounded" style={{ height: `${c.v}%` }} />
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-1">{c.day[0]}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
 
         {/* Recent Activities */}
@@ -467,10 +528,7 @@ function Dashboard() {
         {/* Goal Progress */}
         <div className="grid md:grid-cols-3 gap-4">
           {[
-            { label: "Weekly workouts", value: Math.min(activities.filter(a => {
-                const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-                return true;
-              }).length, 5), target: 5, color: "oklch(0.6 0.22 255)" },
+            { label: "Weekly workouts", value: Math.min(weeklyWorkouts, 5), target: 5, color: "oklch(0.6 0.22 255)" },
             { label: "Mindful minutes", value: 70, target: 100, color: "oklch(0.7 0.16 155)" },
             { label: "Hydration (cups)", value: 6, target: 8, color: "oklch(0.55 0.18 300)" },
           ].map((g) => (
