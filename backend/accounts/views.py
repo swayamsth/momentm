@@ -1236,6 +1236,7 @@ def profile_view(request):
         'bio': profile.bio,
         'is_public': profile.is_public,
         'is_premium': profile.is_premium_active,
+        'avatar_url': profile.avatar_url or None,
         'member_since': user.date_joined.strftime('%b %Y'),
         'stats': {
             'total_points': total_points,
@@ -1246,6 +1247,24 @@ def profile_view(request):
         'cosmetics': cosmetics,
         'loops': loops,
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_avatar_view(request):
+    image = request.FILES.get('image')
+    if not image:
+        return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
+    avatar_url = upload_image_to_supabase(image, folder="avatars")
+    if not avatar_url:
+        return Response({'error': 'Image upload failed.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    try:
+        profile = request.user.userprofile
+    except UserProfile.DoesNotExist:
+        profile = UserProfile.objects.create(user=request.user)
+    profile.avatar_url = avatar_url
+    profile.save()
+    return Response({'avatar_url': avatar_url})
 
 
 # ─── Rewards ──────────────────────────────────────────────────────────────────

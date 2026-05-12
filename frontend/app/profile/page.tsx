@@ -34,6 +34,7 @@ type ProfileData = {
   full_name: string;
   email: string;
   bio: string;
+  avatar_url: string | null;
   is_public: boolean;
   is_premium: boolean;
   member_since: string;
@@ -60,6 +61,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -107,6 +109,29 @@ export default function ProfilePage() {
     }
   };
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingAvatar(true);
+    const formData = new FormData();
+    formData.append("image", file);
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/profile/upload-avatar/", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token()}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error("Upload failed."); return; }
+      setProfile(prev => prev ? { ...prev, avatar_url: data.avatar_url } : prev);
+      toast.success("Avatar updated.");
+    } catch {
+      toast.error("Something went wrong.");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const handleCancel = () => {
     if (!profile) return;
     setFirstName(profile.first_name);
@@ -136,16 +161,28 @@ export default function ProfilePage() {
         <Card className="glass border-0 p-6">
           <div className="flex items-start gap-5">
             {/* Avatar */}
-            <div className="relative shrink-0">
-              <div className="w-20 h-20 rounded-2xl gradient-bg flex items-center justify-center text-primary-foreground text-3xl font-semibold shadow-[var(--shadow-elegant)]">
-                {initials}
+            <label className="relative shrink-0 cursor-pointer group">
+              <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={uploadingAvatar} />
+              <div className="w-20 h-20 rounded-2xl overflow-hidden shadow-(--shadow-elegant)">
+                {profile.avatar_url
+                  ? <img src={profile.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                  : <div className="w-full h-full gradient-bg flex items-center justify-center text-primary-foreground text-3xl font-semibold">{initials}</div>
+                }
               </div>
+              <div className="absolute inset-0 rounded-2xl bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                <Pencil className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+              {uploadingAvatar && (
+                <div className="absolute inset-0 rounded-2xl bg-black/50 flex items-center justify-center">
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                </div>
+              )}
               {profile.is_premium && (
                 <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full gradient-bg flex items-center justify-center">
                   <Sparkles className="w-3 h-3 text-primary-foreground" />
                 </div>
               )}
-            </div>
+            </label>
 
             {/* Info */}
             <div className="flex-1 min-w-0">
@@ -234,22 +271,30 @@ export default function ProfilePage() {
           <div className="space-y-3">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Cosmetics</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {profile.cosmetics.map(c => (
-                <Card key={c.id} className={cn("glass border-0 p-4 flex items-center gap-3 transition-opacity", !c.is_active && "opacity-50")}>
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                    style={{ background: `color-mix(in oklab, ${c.color} 20%, transparent)`, color: c.color }}
-                  >
-                    {ICON_MAP[c.icon] ?? ICON_MAP.trophy}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{c.name}</div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">
-                      {c.is_active ? <span className="text-green-500 font-medium">Active</span> : "Inactive"}
+              {profile.cosmetics.map(c => {
+                const animClass =
+                  c.effect === "streak_flame" ? "cosmetic-flame" :
+                  c.effect === "profile_badge" ? "cosmetic-badge" : null;
+                return (
+                  <Card key={c.id} className={cn("glass border-0 p-4 flex items-center gap-3 transition-opacity", !c.is_active && "opacity-40")}>
+                    <div
+                      className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", animClass)}
+                      style={{ background: `color-mix(in oklab, ${c.color} 20%, transparent)`, color: c.color }}
+                    >
+                      {ICON_MAP[c.icon] ?? ICON_MAP.trophy}
                     </div>
-                  </div>
-                </Card>
-              ))}
+                    <div className="min-w-0">
+                      {c.effect === "leaderboard_title"
+                        ? <span className="cosmetic-title">{c.name}</span>
+                        : <div className="text-sm font-medium truncate">{c.name}</div>
+                      }
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                        {c.is_active ? <span className="text-green-500 font-medium">Active</span> : "Inactive"}
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
             </div>
           </div>
         )}
@@ -261,8 +306,11 @@ export default function ProfilePage() {
             <div className="grid grid-cols-2 gap-3">
               {profile.loops.map(l => (
                 <Card key={l.id} className="glass border-0 p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm shrink-0">
-                    {l.name[0]}
+                  <div className="w-10 h-10 rounded-xl shrink-0 overflow-hidden">
+                    {l.image_url
+                      ? <img src={l.image_url} alt={l.name} className="w-full h-full object-cover" />
+                      : <div className="w-full h-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm">{l.name[0]}</div>
+                    }
                   </div>
                   <div className="font-medium text-sm truncate">{l.name}</div>
                 </Card>

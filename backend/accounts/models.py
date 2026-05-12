@@ -49,6 +49,7 @@ class UserProfile(models.Model):
     premium_expires_at = models.DateTimeField(blank=True, null=True)
     bio = models.TextField(blank=True, default='')
     is_public = models.BooleanField(default=True)
+    avatar_url = models.URLField(max_length=1000, blank=True, null=True)
 
     @property
     def is_premium_active(self):

@@ -46,6 +46,7 @@ urlpatterns = [
     path('activities/log/', views.log_activity_view, name='log-activity'),
     # Profile
     path('profile/', views.profile_view, name='profile'),
+    path('profile/upload-avatar/', views.upload_avatar_view, name='upload-avatar'),
     # Leaderboard
     path('leaderboard/', views.leaderboard_view, name='leaderboard'),
     path('loops/<int:loop_id>/leaderboard/', views.loop_leaderboard_view, name='loop-leaderboard'),
