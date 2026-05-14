@@ -1420,7 +1420,7 @@ def rewards_view(request):
     active_cosmetics = [
         {'effect': cr.reward.effect, 'name': cr.reward.name}
         for cr in ClaimedReward.objects.filter(
-            user=request.user, reward__type='cosmetic'
+            user=request.user, reward__type='cosmetic', is_equipped=True
         ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).select_related('reward')
     ]
 
