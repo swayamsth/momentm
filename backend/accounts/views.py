@@ -1064,6 +1064,7 @@ def leaderboard_view(request):
             'cosmetics': cosmetics,
             'you': user.id == request.user.id,
             'avatar_url': profile.avatar_url if profile else None,
+            'user_id': user.id,
         })
 
     leaderboard.sort(key=lambda x: x['points'], reverse=True)
@@ -1134,6 +1135,7 @@ def loop_leaderboard_view(request, loop_id):
             'cosmetics': cosmetics,
             'you': user.id == request.user.id,
             'avatar_url': profile.avatar_url if profile else None,
+            'user_id': user.id,
         })
 
     leaderboard.sort(key=lambda x: x['points'], reverse=True)
@@ -1144,6 +1146,94 @@ def loop_leaderboard_view(request, loop_id):
 
 
 # ─── Profile ──────────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def public_profile_view(request, user_id):
+    try:
+        target = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        profile = target.userprofile
+    except UserProfile.DoesNotExist:
+        profile = None
+
+    full_name = f"{target.first_name} {target.last_name}".strip() or target.email.split('@')[0]
+
+    if profile and not profile.is_public:
+        return Response({
+            'is_private': True,
+            'full_name': full_name,
+            'avatar_url': profile.avatar_url or None,
+        })
+
+    from django.utils import timezone
+    from django.db.models import Q
+    from datetime import timedelta
+
+    total_points = compute_user_points(target, profile)
+    total_activities = ActivityLog.objects.filter(user=target).count()
+
+    logs_dates = sorted(set(
+        ActivityLog.objects.filter(user=target).values_list('logged_at__date', flat=True)
+    ))
+    best_streak = 0
+    if logs_dates:
+        best = current = 1
+        for i in range(1, len(logs_dates)):
+            if (logs_dates[i] - logs_dates[i - 1]).days == 1:
+                current += 1
+                best = max(best, current)
+            else:
+                current = 1
+        best_streak = best
+
+    loops_count = (
+        LoopMembership.objects.filter(user=target, status='approved').count()
+        + Loop.objects.filter(created_by=target).count()
+    )
+
+    claimed = ClaimedReward.objects.filter(
+        user=target, reward__type='cosmetic', is_equipped=True
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).select_related('reward')
+    cosmetics = [{
+        'id': c.id,
+        'name': c.reward.name,
+        'effect': c.reward.effect,
+        'icon': c.reward.icon,
+        'color': c.reward.color,
+    } for c in claimed]
+
+    memberships = LoopMembership.objects.filter(user=target, status='approved').select_related('loop')
+    created_loops = Loop.objects.filter(created_by=target)
+    seen_ids = set()
+    loops = []
+    for m in memberships:
+        seen_ids.add(m.loop.id)
+        loops.append({'id': m.loop.id, 'name': m.loop.name, 'image_url': m.loop.image_url})
+    for l in created_loops:
+        if l.id not in seen_ids:
+            loops.append({'id': l.id, 'name': l.name, 'image_url': l.image_url})
+
+    return Response({
+        'is_private': False,
+        'full_name': full_name,
+        'avatar_url': profile.avatar_url if profile else None,
+        'bio': profile.bio if profile else '',
+        'is_premium': profile.is_premium_active if profile else False,
+        'member_since': target.date_joined.strftime('%b %Y'),
+        'stats': {
+            'total_points': total_points,
+            'total_activities': total_activities,
+            'best_streak': best_streak,
+            'loops_count': loops_count,
+        },
+        'cosmetics': cosmetics,
+        'loops': loops,
+    })
+
 
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
