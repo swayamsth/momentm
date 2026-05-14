@@ -19,6 +19,7 @@ import {
 } from "recharts";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
 
 const ACTIVITY_TYPES = [
   "Run", "Swim", "Cycle", "Skipping", "Strength", "Sports", "Walk", "Yoga", "HIIT", "Other"
@@ -38,11 +39,11 @@ interface ActivityLog {
   logged_at: string;
 }
 
-function Stat({ icon: Icon, label, value, unit, trend, color }: any) {
+function Stat({ icon: Icon, label, value, unit, trend, color, cosmeticClass }: any) {
   return (
     <Card className="glass border-0 p-5">
       <div className="flex items-start justify-between mb-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `color-mix(in oklab, ${color} 15%, transparent)` }}>
+        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", cosmeticClass)} style={{ background: `color-mix(in oklab, ${color} 15%, transparent)` }}>
           <Icon className="w-5 h-5" style={{ color }} />
         </div>
         <Badge variant="secondary" className="text-xs">+{trend}%</Badge>
@@ -74,6 +75,8 @@ function Dashboard() {
   const [duration, setDuration] = useState(45);
   const [steps, setSteps] = useState(0);
   const [calories, setCalories] = useState(0);
+
+  const [activeEffects, setActiveEffects] = useState<string[]>([]);
 
   const [adjustments, setAdjustments] = useState([
     { id: 1, metric: "Daily steps", from: "8,000", to: "9,500", reason: "You've exceeded your goal 6 of 7 days." },
@@ -111,6 +114,13 @@ function Dashboard() {
       console.log("Could not fetch activities");
     }
   };
+
+  useEffect(() => {
+    try {
+      const cosm = localStorage.getItem("active_cosmetics");
+      if (cosm) setActiveEffects(JSON.parse(cosm).map((c: {effect: string}) => c.effect));
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -312,7 +322,7 @@ function Dashboard() {
           <Stat icon={Footprints} label="Steps today" value={totalStepsToday.toLocaleString()} unit="steps" trend={12} color="oklch(0.6 0.22 255)" />
           <Stat icon={Flame} label="Calories burned" value={totalCaloriesToday.toLocaleString()} unit="kcal" trend={8} color="oklch(0.62 0.22 25)" />
           <Stat icon={Moon} label="Sleep" value="7.4" unit="hrs" trend={5} color="oklch(0.55 0.18 300)" />
-          <Stat icon={TrendingUp} label="Streak" value="23" unit="days" trend={15} color="oklch(0.7 0.16 155)" />
+          <Stat icon={TrendingUp} label="Streak" value="23" unit="days" trend={15} color="oklch(0.7 0.16 155)" cosmeticClass={activeEffects.includes("streak_flame") ? "cosmetic-flame" : undefined} />
         </div>
 
         {/* Charts */}

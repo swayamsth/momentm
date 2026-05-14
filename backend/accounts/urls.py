@@ -47,6 +47,7 @@ urlpatterns = [
     # Profile
     path('profile/', views.profile_view, name='profile'),
     path('profile/upload-avatar/', views.upload_avatar_view, name='upload-avatar'),
+    path('profile/cosmetics/<int:claimed_id>/toggle/', views.toggle_cosmetic_view, name='toggle-cosmetic'),
     # Leaderboard
     path('leaderboard/', views.leaderboard_view, name='leaderboard'),
     path('loops/<int:loop_id>/leaderboard/', views.loop_leaderboard_view, name='loop-leaderboard'),

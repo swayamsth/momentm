@@ -244,6 +244,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [isPremium, setIsPremium] = useState<boolean | null>(null);
   const [displayPoints, setDisplayPoints] = useState(0);
   const [pillVisible, setPillVisible] = useState(false);
+  const [activeCosmetics, setActiveCosmetics] = useState<{effect: string; name: string}[]>([]);
+
+  useEffect(() => {
+    const handler = () => {
+      try {
+        const stored = localStorage.getItem("active_cosmetics");
+        if (stored) setActiveCosmetics(JSON.parse(stored));
+      } catch {}
+    };
+    window.addEventListener("cosmetics-updated", handler);
+    return () => window.removeEventListener("cosmetics-updated", handler);
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -255,6 +267,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .then(d => {
         setAvailablePoints(d.available_points ?? 0);
         setIsPremium(d.is_premium ?? false);
+        const cosmetics = d.active_cosmetics ?? [];
+        setActiveCosmetics(cosmetics);
+        localStorage.setItem("active_cosmetics", JSON.stringify(cosmetics));
       })
       .catch(() => {});
   }, []);
@@ -355,11 +370,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* ── User profile ── */}
           <div className="glass rounded-xl p-3 flex items-center gap-3">
             <Link href="/profile" className="flex items-center gap-3 flex-1 min-w-0 rounded-lg hover:bg-accent transition-colors -mx-1 px-1 py-1">
-              <div className="w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm shrink-0">
+              <div className={cn(
+                "w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm shrink-0",
+                activeCosmetics.some(c => c.effect === "streak_flame") && "cosmetic-avatar-flame",
+                !activeCosmetics.some(c => c.effect === "streak_flame") && activeCosmetics.some(c => c.effect === "profile_badge") && "cosmetic-avatar-badge",
+              )}>
                 {initials}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium leading-tight wrap-break-word">{displayName}</div>
+                <div className="text-sm font-medium leading-tight wrap-break-word flex items-center gap-1.5 flex-wrap">
+                  {displayName}
+                  {activeCosmetics.find(c => c.effect === "leaderboard_title") && (
+                    <span className="cosmetic-title">{activeCosmetics.find(c => c.effect === "leaderboard_title")!.name}</span>
+                  )}
+                </div>
                 <div className="text-xs text-muted-foreground">
                   {isPremium === null ? "—" : isPremium ? "Premium" : "Free"}
                 </div>

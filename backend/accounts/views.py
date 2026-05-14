@@ -656,7 +656,7 @@ def get_active_cosmetics(user):
     from django.db.models import Q
     return list(
         ClaimedReward.objects
-        .filter(user=user, reward__type='cosmetic')
+        .filter(user=user, reward__type='cosmetic', is_equipped=True)
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
         .values_list('reward__effect', flat=True)
     )
@@ -1193,22 +1193,16 @@ def profile_view(request):
     ).count() + Loop.objects.filter(created_by=user).count()
 
     # ── Cosmetics ──
-    from django.db.models import Q
     claimed = ClaimedReward.objects.filter(
         user=user, reward__type='cosmetic'
     ).select_related('reward')
-    active_effects = set(
-        claimed.filter(
-            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())
-        ).values_list('reward__effect', flat=True)
-    )
     cosmetics = [{
         'id': c.id,
         'name': c.reward.name,
         'effect': c.reward.effect,
         'icon': c.reward.icon,
         'color': c.reward.color,
-        'is_active': c.reward.effect in active_effects,
+        'is_active': c.is_equipped,
         'claimed_at': c.claimed_at.strftime('%b %d, %Y'),
     } for c in claimed]
 
@@ -1267,6 +1261,18 @@ def upload_avatar_view(request):
     return Response({'avatar_url': avatar_url})
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def toggle_cosmetic_view(request, claimed_id):
+    try:
+        claim = ClaimedReward.objects.get(id=claimed_id, user=request.user, reward__type='cosmetic')
+    except ClaimedReward.DoesNotExist:
+        return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+    claim.is_equipped = not claim.is_equipped
+    claim.save()
+    return Response({'id': claim.id, 'is_equipped': claim.is_equipped})
+
+
 # ─── Rewards ──────────────────────────────────────────────────────────────────
 
 @api_view(['GET'])
@@ -1300,9 +1306,19 @@ def rewards_view(request):
             'in_stock': has_codes,
         })
 
+    from django.utils import timezone
+    from django.db.models import Q
+    active_cosmetics = [
+        {'effect': cr.reward.effect, 'name': cr.reward.name}
+        for cr in ClaimedReward.objects.filter(
+            user=request.user, reward__type='cosmetic'
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).select_related('reward')
+    ]
+
     return Response({
         'available_points': available,
         'is_premium': profile.is_premium_active,
+        'active_cosmetics': active_cosmetics,
         'rewards': data,
     })
 

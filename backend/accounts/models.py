@@ -196,6 +196,7 @@ class ClaimedReward(models.Model):
     code = models.CharField(max_length=200, blank=True)
     claimed_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
+    is_equipped = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.user.email} — {self.reward.name}"

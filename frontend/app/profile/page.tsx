@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import {
   Flame, Award, Crown, Zap, Star, Ticket, Heart, Tag, Trophy,
-  Pencil, Check, X, Coins, Activity, Users, CalendarDays, Sparkles,
+  Pencil, Check, X, Coins, Activity, Users, CalendarDays, Sparkles, ShieldCheck, ShieldOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -62,6 +62,7 @@ export default function ProfilePage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -129,6 +130,32 @@ export default function ProfilePage() {
       toast.error("Something went wrong.");
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  const handleToggleCosmetic = async (claimedId: number) => {
+    setTogglingId(claimedId);
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/api/profile/cosmetics/${claimedId}/toggle/`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token()}` },
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error("Failed to update cosmetic."); return; }
+      setProfile(prev => {
+        if (!prev) return prev;
+        const updated = prev.cosmetics.map(c => c.id === claimedId ? { ...c, is_active: data.is_equipped } : c);
+        const activeCosmetics = updated
+          .filter(c => c.is_active)
+          .map(c => ({ effect: c.effect, name: c.name }));
+        localStorage.setItem("active_cosmetics", JSON.stringify(activeCosmetics));
+        window.dispatchEvent(new CustomEvent("cosmetics-updated"));
+        return { ...prev, cosmetics: updated };
+      });
+    } catch {
+      toast.error("Something went wrong.");
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -275,23 +302,41 @@ export default function ProfilePage() {
                 const animClass =
                   c.effect === "streak_flame" ? "cosmetic-flame" :
                   c.effect === "profile_badge" ? "cosmetic-badge" : null;
+                const isToggling = togglingId === c.id;
                 return (
-                  <Card key={c.id} className={cn("glass border-0 p-4 flex items-center gap-3 transition-opacity", !c.is_active && "opacity-40")}>
+                  <Card key={c.id} className={cn("glass border-0 p-4 flex items-center gap-3 transition-opacity", !c.is_active && "opacity-50")}>
                     <div
                       className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", animClass)}
                       style={{ background: `color-mix(in oklab, ${c.color} 20%, transparent)`, color: c.color }}
                     >
                       {ICON_MAP[c.icon] ?? ICON_MAP.trophy}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       {c.effect === "leaderboard_title"
                         ? <span className="cosmetic-title">{c.name}</span>
                         : <div className="text-sm font-medium truncate">{c.name}</div>
                       }
                       <div className="text-[11px] text-muted-foreground mt-0.5">
-                        {c.is_active ? <span className="text-green-500 font-medium">Active</span> : "Inactive"}
+                        {c.is_active ? <span className="text-green-500 font-medium">Equipped</span> : "Unequipped"}
                       </div>
                     </div>
+                    <button
+                      onClick={() => handleToggleCosmetic(c.id)}
+                      disabled={isToggling}
+                      title={c.is_active ? "Unequip" : "Equip"}
+                      className={cn(
+                        "shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
+                        c.is_active
+                          ? "text-green-500 hover:bg-red-500/10 hover:text-red-500"
+                          : "text-muted-foreground hover:bg-green-500/10 hover:text-green-500",
+                        isToggling && "opacity-50 pointer-events-none"
+                      )}
+                    >
+                      {c.is_active
+                        ? <ShieldCheck className="w-4 h-4" />
+                        : <ShieldOff className="w-4 h-4" />
+                      }
+                    </button>
                   </Card>
                 );
               })}
