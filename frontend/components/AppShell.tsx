@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Sparkles, Users, Trophy, CreditCard,
   LogOut, Activity, Menu, X, Bell, Heart, MessageCircle,
-  UserCheck, UserPlus, Check,
+  UserCheck, UserPlus, Check, Gift, Coins,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ const nav = [
   { to: "/ai", label: "Momentm AI", icon: Sparkles },
   { to: "/loops", label: "Loops", icon: Users },
   { to: "/leaderboard", label: "Leaderboard", icon: Trophy },
+  { to: "/rewards", label: "My Rewards", icon: Gift },
   { to: "/coaching", label: "Coaching", icon: CreditCard },
 ];
 
@@ -239,6 +240,48 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [user] = useState<User | null>(() => loadUser());
+  const [availablePoints, setAvailablePoints] = useState<number | null>(null);
+  const [isPremium, setIsPremium] = useState<boolean | null>(null);
+  const [displayPoints, setDisplayPoints] = useState(0);
+  const [pillVisible, setPillVisible] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem("access_token");
+    if (!token) return;
+    fetch("http://127.0.0.1:8000/api/rewards/", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(d => {
+        setAvailablePoints(d.available_points ?? 0);
+        setIsPremium(d.is_premium ?? false);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (availablePoints === null) return;
+
+    // Fade the pill in
+    const fadeTimer = setTimeout(() => setPillVisible(true), 50);
+
+    // Count up from 0 to availablePoints
+    const duration = 1200;
+    const start = Date.now();
+    const target = availablePoints;
+
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease out cubic — fast start, gentle finish
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplayPoints(Math.round(eased * target));
+      if (progress < 1) requestAnimationFrame(tick);
+    };
+
+    requestAnimationFrame(tick);
+    return () => clearTimeout(fadeTimer);
+  }, [availablePoints]);
 
   const handleLogout = () => {
     const refresh = localStorage.getItem("refresh_token");
@@ -294,6 +337,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
+          {/* ── Points ── */}
+          <div
+            className="border border-border/50 rounded-2xl px-4 py-3 my-2 transition-opacity duration-700"
+            style={{ opacity: pillVisible ? 1 : 0 }}
+          >
+            <p className="text-[11px] text-muted-foreground mb-1">Available points</p>
+            <div className="flex items-center gap-2">
+              <Coins className="w-4 h-4 shrink-0" style={{ color: "oklch(0.78 0.16 75)" }} />
+              <p className="text-xl font-bold tabular-nums tracking-tight leading-none">
+                {displayPoints.toLocaleString()}
+                <span className="text-xs font-normal text-muted-foreground ml-1.5">pts</span>
+              </p>
+            </div>
+          </div>
+
           {/* ── User profile — NO bell here ── */}
           <div className="glass rounded-xl p-3 flex items-center gap-3">
             <div className="w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
@@ -301,7 +359,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium truncate">{displayName}</div>
-              <div className="text-xs text-muted-foreground">Premium</div>
+              <div className="text-xs text-muted-foreground">
+                {isPremium === null ? "—" : isPremium ? "Premium" : "Free"}
+              </div>
             </div>
             <button onClick={handleLogout}
               className="text-muted-foreground hover:text-red-500 transition-colors" title="Logout">

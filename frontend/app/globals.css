@@ -135,4 +135,69 @@
     color: transparent;
   }
   .gradient-bg { background: var(--gradient-primary); }
+
+  /* ── Cosmetic: streak flame ── */
+  .cosmetic-flame svg {
+    color: oklch(0.78 0.24 38);
+    animation: flame-glow 1.6s ease-in-out infinite;
+    transform-origin: center bottom;
+    display: block;
+  }
+  @keyframes flame-glow {
+    0%, 100% {
+      filter: drop-shadow(0 0 4px oklch(0.72 0.24 30 / 0.8))
+              drop-shadow(0 0 10px oklch(0.65 0.28 25 / 0.4));
+      transform: scaleY(1) rotate(-2deg);
+    }
+    40% {
+      filter: drop-shadow(0 0 8px oklch(0.82 0.28 50 / 1))
+              drop-shadow(0 0 18px oklch(0.75 0.30 40 / 0.6));
+      transform: scaleY(1.2) rotate(2deg);
+    }
+    100% {
+      filter: drop-shadow(0 0 4px oklch(0.72 0.24 30 / 0.8))
+              drop-shadow(0 0 10px oklch(0.65 0.28 25 / 0.4));
+      transform: scaleY(1) rotate(-2deg);
+    }
+  }
+
+  /* ── Cosmetic: profile badge ── */
+  .cosmetic-badge svg {
+    color: oklch(0.85 0.20 85);
+    animation: badge-pulse 2.2s ease-in-out infinite;
+    display: block;
+  }
+  @keyframes badge-pulse {
+    0%, 100% {
+      filter: drop-shadow(0 0 3px oklch(0.82 0.18 85 / 0.7))
+              drop-shadow(0 0 8px oklch(0.80 0.20 80 / 0.3));
+    }
+    50% {
+      filter: drop-shadow(0 0 8px oklch(0.92 0.24 88 / 1))
+              drop-shadow(0 0 20px oklch(0.88 0.26 80 / 0.7));
+    }
+  }
+
+  /* ── Cosmetic: leaderboard title ── */
+  .cosmetic-title {
+    background: linear-gradient(
+      90deg,
+      oklch(0.82 0.18 75),
+      oklch(0.72 0.22 255),
+      oklch(0.75 0.24 290),
+      oklch(0.82 0.18 75)
+    );
+    background-size: 250% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: title-sweep 3s linear infinite;
+    font-style: italic;
+    font-size: 0.75rem;
+    filter: drop-shadow(0 0 8px oklch(0.72 0.20 270 / 0.5));
+  }
+  @keyframes title-sweep {
+    from { background-position: 0% center; }
+    to   { background-position: 250% center; }
+  }
 }
