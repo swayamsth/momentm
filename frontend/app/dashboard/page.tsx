@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Footprints, Flame, Moon, TrendingUp, Sparkles, Plus, Check, X, Award, Settings, LogOut, Clock, Dumbbell,
+  Footprints, Flame, Moon, TrendingUp, Sparkles, Plus, Check, X, Award, Settings, LogOut, Clock, Dumbbell, Star,
 } from "lucide-react";
 import {
   AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -105,6 +105,42 @@ function calcStreak(logs: ActivityLog[]): number {
   }
 
   return streak;
+}
+
+// Mirror the backend points formula (calc_session_points in views.py)
+function calcSessionPoints(duration: number, steps: number, calories: number): number {
+  const base = Math.round(Math.sqrt(duration) * 5);
+  const intensity = Math.min(Math.floor(steps / 500), 10) + Math.min(Math.floor(calories / 100), 10);
+  return base + intensity;
+}
+
+// Calculate total points from all activity logs
+// Mirrors the leaderboard logic: first log of day bonus, duplicate activity penalty
+function calcTotalPoints(logs: ActivityLog[]): number {
+  // Group logs by calendar date
+  const byDate: Record<string, ActivityLog[]> = {};
+  for (const log of logs) {
+    const d = parseLoggedAt(log.logged_at);
+    if (!d) continue;
+    const key = d.toDateString();
+    if (!byDate[key]) byDate[key] = [];
+    byDate[key].push(log);
+  }
+
+  let total = 0;
+  for (const dayLogs of Object.values(byDate)) {
+    total += 10; // first log bonus per day
+    const seen = new Set<string>();
+    for (const log of dayLogs) {
+      let pts = calcSessionPoints(log.duration, log.steps, log.calories);
+      if (seen.has(log.activity.toLowerCase())) {
+        pts = Math.floor(pts * 0.5); // duplicate penalty
+      }
+      seen.add(log.activity.toLowerCase());
+      total += pts;
+    }
+  }
+  return total;
 }
 
 // Count activities logged in the last 7 days
@@ -252,6 +288,7 @@ function Dashboard() {
   // Real calculated values from activity data
   const currentStreak = calcStreak(activities);
   const weeklyWorkouts = countWeeklyWorkouts(activities);
+  const totalPoints = calcTotalPoints(activities);
 
   const displayName = user?.first_name || user?.email?.split("@")[0] || "there";
 
@@ -369,11 +406,14 @@ function Dashboard() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
           <Stat icon={Footprints} label="Steps today" value={totalStepsToday.toLocaleString()} unit="steps" trend={12} color="oklch(0.6 0.22 255)" />
           <Stat icon={Flame} label="Calories burned" value={totalCaloriesToday.toLocaleString()} unit="kcal" trend={8} color="oklch(0.62 0.22 25)" />
-          <Stat icon={Moon} label="Sleep" value="7.4" unit="hrs" trend={5} color="oklch(0.55 0.18 300)" />
           <Stat icon={TrendingUp} label="Streak" value={currentStreak} unit="days" trend={15} color="oklch(0.7 0.16 155)" />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Stat icon={Moon} label="Sleep" value="7.4" unit="hrs" trend={5} color="oklch(0.55 0.18 300)" />
+          <Stat icon={Star} label="Total points" value={totalPoints.toLocaleString()} unit="pts" trend={10} color="oklch(0.75 0.18 85)" />
         </div>
 
         {/* Charts */}
