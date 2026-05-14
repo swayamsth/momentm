@@ -24,7 +24,7 @@ import { useRouter } from "next/navigation";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 
 const ACTIVITY_TYPES = [
-  "Run", "Swim", "Cycle", "Skipping", "Strength", "Sports", "Walk", "Yoga", "HIIT", "Other"
+  "Run", "Swim", "Cycle", "Strength", "Skipping"
 ];
 
 const consistency = [
@@ -167,6 +167,9 @@ function Dashboard() {
   const [duration, setDuration] = useState(45);
   const [steps, setSteps] = useState(0);
   const [calories, setCalories] = useState(0);
+  const [selfie, setSelfie] = useState<File | null>(null);
+  const [screenshot, setScreenshot] = useState<File | null>(null);
+  const [verificationResult, setVerificationResult] = useState<{ status: string; reason: string } | null>(null);
 
   const [adjustments, setAdjustments] = useState([
     { id: 1, metric: "Daily steps", from: "8,000", to: "9,500", reason: "You've exceeded your goal 6 of 7 days." },
@@ -229,27 +232,45 @@ function Dashboard() {
     e.preventDefault();
     setLogLoading(true);
     setLogError("");
+    setVerificationResult(null);
     const token = localStorage.getItem("access_token");
     if (!token) return;
+
+    if (!selfie) { setLogError("Please upload a selfie photo."); setLogLoading(false); return; }
+    if (!screenshot) { setLogError("Please upload a screenshot of your fitness app."); setLogLoading(false); return; }
+
     try {
+      const formData = new FormData();
+      formData.append("activity", activityName);
+      formData.append("duration", String(duration));
+      formData.append("steps", String(steps));
+      formData.append("calories", String(calories));
+      formData.append("selfie", selfie);
+      formData.append("screenshot", screenshot);
+
       const res = await fetch(`${API}/activities/log/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ activity: activityName, duration, steps, calories }),
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
       });
       const data = await res.json();
       if (res.ok) {
         const updated = [data, ...activities];
         setActivities(updated);
         setTrendData(buildTrend(updated));
-        setDialogOpen(false);
+        setVerificationResult({ status: data.verification_status, reason: data.verification_reason });
+        if (data.verification_status === "verified") {
+          setTimeout(() => {
+            setDialogOpen(false);
+            setVerificationResult(null);
+          }, 2000);
+        }
         setActivityName("Run");
         setDuration(45);
         setSteps(0);
         setCalories(0);
+        setSelfie(null);
+        setScreenshot(null);
       } else {
         setLogError(data.error || "Failed to log activity.");
       }
@@ -321,7 +342,7 @@ function Dashboard() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); setLogError(""); }}>
+            <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); setLogError(""); setSelfie(null); setScreenshot(null); setVerificationResult(null); }}>
               <DialogTrigger asChild>
                 <Button size="lg" className="gradient-bg shadow-[var(--shadow-elegant)]">
                   <Plus className="w-4 h-4 mr-1" /> Log activity
@@ -395,9 +416,45 @@ function Dashboard() {
                         }}
                       />
                     </div>
+                    <div className="col-span-2">
+                      <Label>Workout selfie <span className="text-red-500">*</span></Label>
+                      <p className="text-xs text-muted-foreground mb-1">A photo of you during or after your workout</p>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        required
+                        onChange={(e) => setSelfie(e.target.files?.[0] || null)}
+                        className="cursor-pointer"
+                      />
+                      {selfie && <p className="text-xs text-green-600 mt-1">✓ {selfie.name}</p>}
+                    </div>
+                    <div className="col-span-2">
+                      <Label>Fitness app screenshot <span className="text-red-500">*</span></Label>
+                      <p className="text-xs text-muted-foreground mb-1">A screenshot from any fitness app showing your workout data</p>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        required
+                        onChange={(e) => setScreenshot(e.target.files?.[0] || null)}
+                        className="cursor-pointer"
+                      />
+                      {screenshot && <p className="text-xs text-green-600 mt-1">✓ {screenshot.name}</p>}
+                    </div>
                   </div>
+
+                  {verificationResult && (
+                    <div className={`p-3 rounded-lg ${verificationResult.status === "verified" ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200"}`}>
+                      <p className={`text-sm font-medium ${verificationResult.status === "verified" ? "text-green-700" : "text-red-700"}`}>
+                        {verificationResult.status === "verified" ? "✓ Verified!" : "✗ Not verified"}
+                      </p>
+                      <p className={`text-xs mt-0.5 ${verificationResult.status === "verified" ? "text-green-600" : "text-red-600"}`}>
+                        {verificationResult.reason}
+                      </p>
+                    </div>
+                  )}
+
                   <Button type="submit" className="w-full gradient-bg" disabled={logLoading}>
-                    {logLoading ? "Saving..." : "Save activity"}
+                    {logLoading ? "Verifying photos & saving..." : "Save activity"}
                   </Button>
                 </form>
               </DialogContent>
