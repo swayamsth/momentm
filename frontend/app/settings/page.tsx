@@ -12,7 +12,6 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -131,7 +130,7 @@ export default function SettingsPage() {
               variant="outline"
               size="sm"
               className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
-              onClick={() => { setDeleteConfirm(""); setDeleteOpen(true); }}
+              onClick={() => setDeleteOpen(true)}
             >
               <Trash2 className="w-4 h-4 mr-1.5" /> Delete
             </Button>
@@ -146,25 +145,17 @@ export default function SettingsPage() {
               <Trash2 className="w-5 h-5" /> Delete Account
             </DialogTitle>
             <DialogDescription className="text-sm pt-1">
-              This is permanent and cannot be undone. All your data, loops, and activity history will be deleted.
-              <br /><br />
-              Type <strong>DELETE</strong> to confirm.
+              Are you sure you want to delete your account? This is permanent and cannot be undone.
+              All your data, loops, and activity history will be deleted.
             </DialogDescription>
           </DialogHeader>
-          <input
-            className="w-full border rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-red-400"
-            placeholder="Type DELETE to confirm"
-            value={deleteConfirm}
-            onChange={(e) => setDeleteConfirm(e.target.value)}
-          />
-          <DialogFooter className="gap-2 mt-2">
+          <DialogFooter className="gap-2 mt-4">
             <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
             <Button
-              disabled={deleteConfirm !== "DELETE"}
               onClick={handleDeleteAccount}
-              className="bg-red-600 hover:bg-red-700 text-white disabled:opacity-40"
+              className="bg-red-600 hover:bg-red-700 text-white"
             >
-              <Trash2 className="w-4 h-4 mr-1" /> Delete my account
+              <Trash2 className="w-4 h-4 mr-1" /> Yes, delete my account
             </Button>
           </DialogFooter>
         </DialogContent>

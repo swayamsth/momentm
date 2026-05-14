@@ -1,9 +1,18 @@
 "use client";
-import { Suspense, useState } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Label } from "@/components/ui/label";
 import { usePremium } from "@/hooks/usePremium";
 import { ChevronLeft, Lock, Loader2, CheckCircle, Activity } from "lucide-react";
+import { loadStripe } from "@stripe/stripe-js";
+import {
+  Elements,
+  CardElement,
+  useStripe,
+  useElements,
+} from "@stripe/react-stripe-js";
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 const PLANS: Record<string, { name: string; price: number; features: string[] }> = {
   premium: {
@@ -18,39 +27,26 @@ const PLANS: Record<string, { name: string; price: number; features: string[] }>
   },
 };
 
-function formatCardNumber(v: string) {
-  return v.replace(/\D/g, "").slice(0, 16).replace(/(.{4})/g, "$1 ").trim();
+function genTxId() {
+  return "TXN-" + Math.random().toString(36).substring(2, 10).toUpperCase();
 }
-function formatExpiry(v: string) {
-  const d = v.replace(/\D/g, "").slice(0, 4);
-  return d.length >= 3 ? d.slice(0, 2) + "/" + d.slice(2) : d;
-}
+
 function loadUser() {
   try {
     const s = typeof window !== "undefined" ? localStorage.getItem("user") : null;
     return s ? JSON.parse(s) : null;
   } catch { return null; }
 }
-function genTxId() {
-  return "TXN-" + Math.random().toString(36).substring(2, 10).toUpperCase();
-}
 
-function PaymentPageInner() {
-  const searchParams = useSearchParams();
+const inp = "w-full h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all";
+
+function CheckoutForm({ plan, planKey }: { plan: typeof PLANS[string]; planKey: string }) {
+  const stripe = useStripe();
+  const elements = useElements();
   const router = useRouter();
   const { activatePremium } = usePremium();
-
-  const planKey = searchParams.get("plan") ?? "premium";
-  const plan = PLANS[planKey] ?? PLANS.premium;
   const user = loadUser();
 
-  // Card fields
-  const [cardNumber, setCardNumber] = useState("");
-  const [expiry, setExpiry] = useState("");
-  const [cvv, setCvv] = useState("");
-  const [holder, setHolder] = useState(`${user?.first_name ?? ""} ${user?.last_name ?? ""}`.trim());
-
-  // Personal fields
   const [firstName, setFirstName] = useState(user?.first_name ?? "");
   const [lastName, setLastName] = useState(user?.last_name ?? "");
   const [country, setCountry] = useState("Australia");
@@ -64,36 +60,70 @@ function PaymentPageInner() {
   const [error, setError] = useState("");
 
   const handlePay = async () => {
-    setError("");
-    if (cardNumber.replace(/\s/g, "").length !== 16) { setError("Enter a valid 16-digit card number."); return; }
-    if (expiry.length !== 5) { setError("Enter a valid expiry (MM/YY)."); return; }
-    if (cvv.length < 3) { setError("Enter a valid CVV."); return; }
-    if (!holder.trim()) { setError("Enter the cardholder name."); return; }
+    if (!stripe || !elements) return;
     if (!email.trim()) { setError("Enter your email address."); return; }
 
+    setError("");
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1800));
-    activatePremium();
 
-    const txId = genTxId();
-    const billingDate = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
+    try {
+      // 1. Create PaymentIntent on server
+      const res = await fetch("/api/create-payment-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: planKey }),
+      });
+      const { clientSecret } = await res.json();
 
-    fetch("/api/invoice", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        planName: plan.name, price: plan.price,
-        userName: `${firstName} ${lastName}`.trim(),
-        userEmail: email, transactionId: txId, billingDate,
-      }),
-    }).catch(() => {});
+      // 2. Confirm card payment with Stripe
+      const cardElement = elements.getElement(CardElement);
+      if (!cardElement) { setLoading(false); return; }
 
-    setLoading(false);
-    setSuccess(true);
-    setTimeout(() => router.push("/dashboard"), 2800);
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardElement,
+          billing_details: {
+            name: `${firstName} ${lastName}`.trim() || user?.first_name || "Customer",
+            email,
+          },
+        },
+      });
+
+      if (stripeError) {
+        setError(stripeError.message ?? "Payment failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      if (paymentIntent?.status === "succeeded") {
+        // 3. Activate premium locally
+        activatePremium();
+
+        // 4. Send invoice email
+        const txId = genTxId();
+        const billingDate = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
+        fetch("/api/invoice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            planName: plan.name,
+            price: plan.price,
+            userName: `${firstName} ${lastName}`.trim(),
+            userEmail: email,
+            transactionId: paymentIntent.id,
+            billingDate,
+          }),
+        }).catch(() => {});
+
+        setSuccess(true);
+        setTimeout(() => router.push("/dashboard"), 2800);
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
-
-  const inp = "w-full h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all";
 
   if (success) {
     return (
@@ -112,6 +142,156 @@ function PaymentPageInner() {
       </div>
     );
   }
+
+  return (
+    <div className="flex-1 flex items-start justify-center py-10 px-4">
+      <div className="w-full max-w-3xl">
+        <h1 className="text-2xl font-bold text-gray-900 mb-1">Complete your purchase</h1>
+        <p className="text-gray-500 text-sm mb-8">{plan.name} · ${plan.price}.00 / month</p>
+
+        <div className="grid md:grid-cols-2 gap-6">
+
+          {/* ── Left: Personal information ── */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm space-y-4">
+            <div>
+              <h2 className="font-semibold text-gray-900">Personal information</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Your invoice will be sent to the email below</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-gray-500 mb-1.5 block">First name</Label>
+                <input className={inp} placeholder="First name"
+                  value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs text-gray-500 mb-1.5 block">Last name</Label>
+                <input className={inp} placeholder="Last name"
+                  value={lastName} onChange={(e) => setLastName(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500 mb-1.5 block">Country</Label>
+              <select className={inp} value={country} onChange={(e) => setCountry(e.target.value)}>
+                {["Australia","United States","United Kingdom","Canada","India","New Zealand","Singapore","Other"].map(c => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-gray-500 mb-1.5 block">City</Label>
+                <input className={inp} placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs text-gray-500 mb-1.5 block">Zip code</Label>
+                <input className={inp} placeholder="0000"
+                  value={zip} onChange={(e) => setZip(e.target.value.replace(/\D/g, "").slice(0, 10))} />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500 mb-1.5 block">E-mail</Label>
+              <input className={inp} placeholder="you@example.com" type="email"
+                value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500 mb-1.5 block">Phone number</Label>
+              <input className={inp} placeholder="+61 400 000 000" type="tel"
+                value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+          </div>
+
+          {/* ── Right: Card information ── */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm space-y-5">
+            <div>
+              <h2 className="font-semibold text-gray-900">Card information</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Secured and processed by Stripe</p>
+            </div>
+
+            {/* Accepted cards */}
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-400">Accepted:</span>
+              <span className="px-2.5 py-1 rounded-md bg-[#1a1f71] text-white font-bold italic text-sm tracking-wider">VISA</span>
+              <div className="flex items-center border border-gray-200 rounded-md px-2.5 py-1 gap-1.5 bg-white">
+                <div className="w-4 h-4 rounded-full bg-red-500" />
+                <div className="w-4 h-4 rounded-full bg-yellow-400 -ml-2.5" />
+                <span className="text-xs text-gray-600 font-medium ml-0.5">Mastercard</span>
+              </div>
+            </div>
+
+            {error && (
+              <p className="text-sm text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+            )}
+
+            {/* Stripe Card Element */}
+            <div>
+              <Label className="text-xs text-gray-500 mb-1.5 block">Card details</Label>
+              <div className="w-full h-11 rounded-xl border border-gray-200 bg-white px-4 flex items-center focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all">
+                <CardElement
+                  className="w-full"
+                  options={{
+                    style: {
+                      base: {
+                        fontSize: "14px",
+                        color: "#111827",
+                        fontFamily: "inherit",
+                        "::placeholder": { color: "#9ca3af" },
+                      },
+                      invalid: { color: "#ef4444" },
+                    },
+                    hidePostalCode: true,
+                  }}
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">
+                Use test card: <span className="font-mono">4242 4242 4242 4242</span> · any future date · any CVC
+              </p>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-gray-50 rounded-xl p-4 space-y-1.5">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">{plan.name}</span>
+                <span className="font-semibold">${plan.price}.00</span>
+              </div>
+              <div className="flex justify-between text-xs text-gray-400">
+                <span>Billed monthly</span><span>Cancel anytime</span>
+              </div>
+            </div>
+
+            <button onClick={handlePay} disabled={loading || !stripe}
+              className="w-full h-12 rounded-xl font-semibold text-white text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-60"
+              style={{ background: "linear-gradient(135deg,#2563eb,#6366f1)" }}>
+              {loading
+                ? <><Loader2 className="w-4 h-4 animate-spin" />Processing…</>
+                : <><Lock className="w-4 h-4" />Pay ${plan.price}.00</>}
+            </button>
+            <p className="text-center text-xs text-gray-400 flex items-center justify-center gap-1">
+              <Lock className="w-3 h-3" /> Powered by Stripe · 256-bit SSL
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaymentPageInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const planKey = searchParams.get("plan") ?? "premium";
+  const plan = PLANS[planKey] ?? PLANS.premium;
+  const [clientSecret, setClientSecret] = useState("");
+
+  useEffect(() => {
+    fetch("/api/create-payment-intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan: planKey }),
+    })
+      .then(r => r.json())
+      .then(d => setClientSecret(d.clientSecret));
+  }, [planKey]);
 
   return (
     <div className="min-h-screen bg-[#f0f2f5] flex flex-col">
@@ -133,136 +313,15 @@ function PaymentPageInner() {
         </div>
       </div>
 
-      <div className="flex-1 flex items-start justify-center py-10 px-4">
-        <div className="w-full max-w-3xl">
-          <h1 className="text-2xl font-bold text-gray-900 mb-1">Complete your purchase</h1>
-          <p className="text-gray-500 text-sm mb-8">{plan.name} · ${plan.price}.00 / month</p>
-
-          <div className="grid md:grid-cols-2 gap-6">
-
-            {/* ── Left: Personal information ── */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm space-y-4">
-              <div>
-                <h2 className="font-semibold text-gray-900">Personal information</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Your invoice will be sent to the email below</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-gray-500 mb-1.5 block">First name</Label>
-                  <input className={inp} placeholder="First name"
-                    value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-                </div>
-                <div>
-                  <Label className="text-xs text-gray-500 mb-1.5 block">Last name</Label>
-                  <input className={inp} placeholder="Last name"
-                    value={lastName} onChange={(e) => setLastName(e.target.value)} />
-                </div>
-              </div>
-              <div>
-                <Label className="text-xs text-gray-500 mb-1.5 block">Country</Label>
-                <select className={inp} value={country} onChange={(e) => setCountry(e.target.value)}>
-                  {["Australia","United States","United Kingdom","Canada","India","New Zealand","Singapore","Other"].map(c => (
-                    <option key={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-gray-500 mb-1.5 block">City</Label>
-                  <input className={inp} placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
-                </div>
-                <div>
-                  <Label className="text-xs text-gray-500 mb-1.5 block">Zip code</Label>
-                  <input className={inp} placeholder="0000"
-                    value={zip} onChange={(e) => setZip(e.target.value.replace(/\D/g, "").slice(0, 10))} />
-                </div>
-              </div>
-              <div>
-                <Label className="text-xs text-gray-500 mb-1.5 block">E-mail</Label>
-                <input className={inp} placeholder="you@example.com" type="email"
-                  value={email} onChange={(e) => setEmail(e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-xs text-gray-500 mb-1.5 block">Phone number</Label>
-                <input className={inp} placeholder="+61 400 000 000" type="tel"
-                  value={phone} onChange={(e) => setPhone(e.target.value)} />
-              </div>
-            </div>
-
-            {/* ── Right: Card information ── */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm space-y-5">
-              <div>
-                <h2 className="font-semibold text-gray-900">Card information</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Indicate details of the card from which money will be debited</p>
-              </div>
-
-              {/* Accepted cards */}
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-400">Accepted:</span>
-                <span className="px-2.5 py-1 rounded-md bg-[#1a1f71] text-white font-bold italic text-sm tracking-wider">VISA</span>
-                <div className="flex items-center border border-gray-200 rounded-md px-2.5 py-1 gap-1.5 bg-white">
-                  <div className="w-4 h-4 rounded-full bg-red-500" />
-                  <div className="w-4 h-4 rounded-full bg-yellow-400 -ml-2.5" />
-                  <span className="text-xs text-gray-600 font-medium ml-0.5">Mastercard</span>
-                </div>
-              </div>
-
-              {error && (
-                <p className="text-sm text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
-              )}
-
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs text-gray-500 mb-1.5 block">Cardholder name</Label>
-                  <input className={inp} placeholder="Full name on card"
-                    value={holder} onChange={(e) => setHolder(e.target.value)} />
-                </div>
-                <div>
-                  <Label className="text-xs text-gray-500 mb-1.5 block">Card number</Label>
-                  <input className={`${inp} font-mono tracking-widest`} placeholder="0000 0000 0000 0000"
-                    value={cardNumber} onChange={(e) => setCardNumber(formatCardNumber(e.target.value))} maxLength={19} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs text-gray-500 mb-1.5 block">Month and year</Label>
-                    <input className={`${inp} font-mono`} placeholder="MM / YY"
-                      value={expiry} onChange={(e) => setExpiry(formatExpiry(e.target.value))} maxLength={5} />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-gray-500 mb-1.5 block">CVV code</Label>
-                    <input className={`${inp} font-mono`} placeholder="•••"
-                      value={cvv} onChange={(e) => setCvv(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                      maxLength={4} type="password" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Summary */}
-              <div className="bg-gray-50 rounded-xl p-4 space-y-1.5">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">{plan.name}</span>
-                  <span className="font-semibold">${plan.price}.00</span>
-                </div>
-                <div className="flex justify-between text-xs text-gray-400">
-                  <span>Billed monthly</span><span>Cancel anytime</span>
-                </div>
-              </div>
-
-              <button onClick={handlePay} disabled={loading}
-                className="w-full h-12 rounded-xl font-semibold text-white text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-60"
-                style={{ background: "linear-gradient(135deg,#2563eb,#6366f1)" }}>
-                {loading
-                  ? <><Loader2 className="w-4 h-4 animate-spin" />Processing…</>
-                  : <><Lock className="w-4 h-4" />Pay ${plan.price}.00</>}
-              </button>
-              <p className="text-center text-xs text-gray-400 flex items-center justify-center gap-1">
-                <Lock className="w-3 h-3" /> 256-bit SSL secured · Cancel anytime
-              </p>
-            </div>
-          </div>
+      {clientSecret ? (
+        <Elements stripe={stripePromise} options={{ clientSecret }}>
+          <CheckoutForm plan={plan} planKey={planKey} />
+        </Elements>
+      ) : (
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
         </div>
-      </div>
+      )}
     </div>
   );
 }
