@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -77,8 +78,10 @@ interface Notification {
 
 interface Comment {
   id: number;
+  user_id: number;
   user: string;
   handle: string;
+  avatar_url: string | null;
   text: string;
   likes: number;
   liked: boolean;
@@ -88,8 +91,10 @@ interface Comment {
 
 interface Post {
   id: number;
+  user_id: number;
   user: string;
   handle: string;
+  avatar_url: string | null;
   time: string;
   text: string;
   likes: number;
@@ -731,13 +736,18 @@ function PostCard({ post, loops, onLikePost, onAddComment, onLikeComment, onDele
       {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
       <Card className="glass border-0 p-4">
         <div className="flex gap-3">
-          <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
-            {post.user[0].toUpperCase()}
-          </div>
+          <Link href={post.is_mine ? "/profile" : `/profile/${post.user_id}`} className="shrink-0">
+            <div className="w-10 h-10 rounded-full overflow-hidden gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm hover:opacity-80 transition-opacity">
+              {post.avatar_url
+                ? <img src={post.avatar_url} alt={post.user} className="w-full h-full object-cover" />
+                : post.user[0].toUpperCase()
+              }
+            </div>
+          </Link>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2 text-sm flex-wrap">
-                <span className="font-semibold">{post.user}</span>
+                <Link href={post.is_mine ? "/profile" : `/profile/${post.user_id}`} className="font-semibold hover:underline">{post.user}</Link>
                 <span className="text-muted-foreground">@{post.handle} · {post.time}</span>
                 {post.loop && post.loop_id && (
                   <button onClick={() => onLoopClick(post.loop_id!)} className="flex items-center gap-1 hover:opacity-70 transition-opacity">
@@ -817,13 +827,18 @@ function PostCard({ post, loops, onLikePost, onAddComment, onLikeComment, onDele
                 ) : (
                   post.comments.map((comment) => (
                     <div key={comment.id} className="flex gap-2 pl-2">
-                      <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center font-semibold text-xs flex-shrink-0">
-                        {comment.user[0].toUpperCase()}
-                      </div>
+                      <Link href={comment.is_mine ? "/profile" : `/profile/${comment.user_id}`} className="shrink-0">
+                        <div className="w-7 h-7 rounded-full overflow-hidden bg-muted flex items-center justify-center font-semibold text-xs hover:opacity-80 transition-opacity">
+                          {comment.avatar_url
+                            ? <img src={comment.avatar_url} alt={comment.user} className="w-full h-full object-cover" />
+                            : comment.user[0].toUpperCase()
+                          }
+                        </div>
+                      </Link>
                       <div className="flex-1 bg-muted rounded-xl px-3 py-2">
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <div className="flex items-center gap-2 text-xs">
-                            <span className="font-semibold">{comment.user}</span>
+                            <Link href={comment.is_mine ? "/profile" : `/profile/${comment.user_id}`} className="font-semibold hover:underline">{comment.user}</Link>
                             <span className="text-muted-foreground">@{comment.handle} · {comment.time}</span>
                           </div>
                           {comment.is_mine && (
@@ -1104,7 +1119,8 @@ export default function LoopsPage() {
       if (res.ok) updatePosts((p) => p.map((x) => x.id === postId ? { ...x, comments: [...x.comments, data] } : x));
     } catch {
       const local: Comment = {
-        id: Date.now(), user: user?.first_name || "You",
+        id: Date.now(), user_id: 0, avatar_url: null,
+        user: user?.first_name || "You",
         handle: user?.email?.split("@")[0] || "you",
         text, likes: 0, liked: false, time: "just now", is_mine: true,
       };

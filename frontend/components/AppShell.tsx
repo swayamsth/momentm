@@ -245,7 +245,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [displayPoints, setDisplayPoints] = useState(0);
   const [pillVisible, setPillVisible] = useState(false);
   const [activeCosmetics, setActiveCosmetics] = useState<{effect: string; name: string}[]>([]);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(() => {
+    try { return localStorage.getItem("avatar_url"); } catch { return null; }
+  });
 
   useEffect(() => {
     const onCosmetics = () => {

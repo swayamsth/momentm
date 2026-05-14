@@ -254,6 +254,13 @@ def get_user_loop_ids(user):
     return list(set(membership_ids + created_ids))
 
 
+def _get_avatar(user):
+    try:
+        return user.userprofile.avatar_url or None
+    except UserProfile.DoesNotExist:
+        return None
+
+
 def serialize_post(post, request_user=None):
     full_name = f"{post.user.first_name} {post.user.last_name}".strip()
     comments = []
@@ -261,8 +268,10 @@ def serialize_post(post, request_user=None):
         comment_name = f"{comment.user.first_name} {comment.user.last_name}".strip()
         comments.append({
             'id': comment.id,
+            'user_id': comment.user.id,
             'user': comment_name or comment.user.email,
             'handle': comment.user.email.split('@')[0],
+            'avatar_url': _get_avatar(comment.user),
             'text': comment.text,
             'likes': comment.likes.count(),
             'liked': request_user in comment.likes.all() if request_user and request_user.is_authenticated else False,
@@ -272,8 +281,10 @@ def serialize_post(post, request_user=None):
 
     return {
         'id': post.id,
+        'user_id': post.user.id,
         'user': full_name or post.user.email,
         'handle': post.user.email.split('@')[0],
+        'avatar_url': _get_avatar(post.user),
         'text': post.text,
         'image': post.image_url or None,
         'loop': post.loop.name if post.loop else None,
@@ -319,7 +330,7 @@ def serialize_loop(loop, request_user=None):
 
 @api_view(['GET'])
 def get_posts_view(request):
-    all_posts = Post.objects.select_related('user', 'loop').prefetch_related(
+    all_posts = Post.objects.select_related('user', 'user__userprofile', 'loop').prefetch_related(
         'post_comments__user', 'post_comments__likes', 'likes'
     ).all()[:100]
 
@@ -348,13 +359,13 @@ def get_my_posts_view(request):
             return Response({'error': 'Not a member of this loop.'}, status=status.HTTP_403_FORBIDDEN)
         posts = Post.objects.filter(
             loop_id=loop_id
-        ).select_related('user', 'loop').prefetch_related(
+        ).select_related('user', 'user__userprofile', 'loop').prefetch_related(
             'post_comments__user', 'post_comments__likes', 'likes'
         )
     else:
         posts = Post.objects.filter(
             user=request.user
-        ).select_related('user', 'loop').prefetch_related(
+        ).select_related('user', 'user__userprofile', 'loop').prefetch_related(
             'post_comments__user', 'post_comments__likes', 'likes'
         )
 
@@ -374,7 +385,7 @@ def get_loop_posts_view(request, loop_id):
     if loop.is_private and loop_id not in user_loop_ids:
         return Response({'error': 'Not a member of this loop.'}, status=status.HTTP_403_FORBIDDEN)
 
-    posts = Post.objects.filter(loop=loop).select_related('user', 'loop').prefetch_related(
+    posts = Post.objects.filter(loop=loop).select_related('user', 'user__userprofile', 'loop').prefetch_related(
         'post_comments__user', 'post_comments__likes', 'likes'
     )
 
@@ -651,12 +662,13 @@ def get_available_points(user, profile=None):
 def get_active_cosmetics(user):
     from django.utils import timezone
     from django.db.models import Q
-    return list(
+    rows = (
         ClaimedReward.objects
         .filter(user=user, reward__type='cosmetic', is_equipped=True)
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
-        .values_list('reward__effect', flat=True)
+        .values_list('reward__effect', 'reward__name')
     )
+    return [{'effect': effect, 'name': name} for effect, name in rows]
 
 
 @api_view(['PATCH'])
@@ -1055,13 +1067,16 @@ def leaderboard_view(request):
                 current -= timedelta(days=1)
 
         cosmetics = get_active_cosmetics(user)
+        effects = [c['effect'] for c in cosmetics]
+        title_name = next((c['name'] for c in cosmetics if c['effect'] == 'leaderboard_title'), None)
         full_name = f"{user.first_name} {user.last_name}".strip() or user.email.split('@')[0]
         leaderboard.append({
             'name': full_name,
             'points': total_points,
             'streak': display_streak,
             'is_premium': profile.is_premium_active if profile else False,
-            'cosmetics': cosmetics,
+            'cosmetics': effects,
+            'title_name': title_name,
             'you': user.id == request.user.id,
             'avatar_url': profile.avatar_url if profile else None,
             'user_id': user.id,
@@ -1126,13 +1141,16 @@ def loop_leaderboard_view(request, loop_id):
                 current -= timedelta(days=1)
 
         cosmetics = get_active_cosmetics(user)
+        effects = [c['effect'] for c in cosmetics]
+        title_name = next((c['name'] for c in cosmetics if c['effect'] == 'leaderboard_title'), None)
         full_name = f"{user.first_name} {user.last_name}".strip() or user.email.split('@')[0]
         leaderboard.append({
             'name': full_name,
             'points': total_points,
             'streak': display_streak,
             'is_premium': profile.is_premium_active if profile else False,
-            'cosmetics': cosmetics,
+            'cosmetics': effects,
+            'title_name': title_name,
             'you': user.id == request.user.id,
             'avatar_url': profile.avatar_url if profile else None,
             'user_id': user.id,

@@ -26,6 +26,7 @@ type LeaderboardUser = {
   points: number;
   is_premium: boolean;
   cosmetics: string[];
+  title_name: string | null;
   you: boolean;
   avatar_url: string | null;
   user_id: number;
@@ -209,7 +210,7 @@ function Row({ u }: { u: LeaderboardUser }) {
         <div className="font-medium text-sm flex items-center gap-1.5 flex-wrap">
           {u.name}
           {hasBadge && <span className="cosmetic-badge"><Award className="w-5 h-5" /></span>}
-          {hasTitle && <span className="cosmetic-title">Iron Athlete</span>}
+          {hasTitle && u.title_name && <span className="cosmetic-title">{u.title_name}</span>}
           {u.you && <Badge variant="secondary" className="text-xs">You</Badge>}
           {u.is_premium && <Badge className="text-xs gradient-bg border-0 text-primary-foreground">Premium</Badge>}
         </div>
