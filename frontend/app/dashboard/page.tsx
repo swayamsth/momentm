@@ -19,6 +19,7 @@ import {
 } from "recharts";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { usePremium } from "@/hooks/usePremium";
 
 const ACTIVITY_TYPES = [
   "Run", "Swim", "Cycle", "Skipping", "Strength", "Sports", "Walk", "Yoga", "HIIT", "Other"
@@ -63,6 +64,7 @@ function isToday(loggedAt: string): boolean {
 
 function Dashboard() {
   const router = useRouter();
+  const { isPremium, daysRemaining } = usePremium();
   const [user, setUser] = useState<{ email: string; first_name: string; last_name: string; two_factor_enabled?: boolean } | null>(null);
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [trendData, setTrendData] = useState<{ day: string; steps: number; calories: number }[]>([]);
@@ -208,6 +210,16 @@ function Dashboard() {
             </h1>
           </div>
           <div className="flex items-center gap-3">
+            {isPremium ? (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-yellow-400/50 bg-yellow-50 text-yellow-700 text-xs font-medium">
+                <Sparkles className="w-3.5 h-3.5 text-yellow-500" />
+                Premium · {daysRemaining}d left
+              </div>
+            ) : (
+              <Button size="sm" className="gradient-bg text-xs" onClick={() => router.push("/coaching")}>
+                <Sparkles className="w-3.5 h-3.5 mr-1" /> Upgrade to Premium
+              </Button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm"><Settings className="w-4 h-4" /></Button>
@@ -487,6 +499,7 @@ function Dashboard() {
           ))}
         </div>
       </div>
+
     </AppShell>
   );
 }

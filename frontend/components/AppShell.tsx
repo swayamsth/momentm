@@ -246,6 +246,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [pillVisible, setPillVisible] = useState(false);
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem("momentm_premium");
+      if (raw) {
+        const { expiresAt, email } = JSON.parse(raw);
+        const stored = localStorage.getItem("user");
+        const currentEmail = stored ? JSON.parse(stored).email : null;
+        const emailMatches = email && currentEmail && email === currentEmail;
+        if (emailMatches) {
+          const days = Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+          if (days > 0) setIsPremium(true);
+        }
+      }
+    } catch {}
+
     const token = localStorage.getItem("access_token");
     if (!token) return;
     fetch("http://127.0.0.1:8000/api/rewards/", {
@@ -254,9 +268,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .then(r => r.json())
       .then(d => {
         setAvailablePoints(d.available_points ?? 0);
-        setIsPremium(d.is_premium ?? false);
+        if (d.is_premium) setIsPremium(true);
+        else setIsPremium(prev => prev ?? false);
       })
-      .catch(() => {});
+      .catch(() => {
+        setIsPremium(prev => prev ?? false);
+      });
   }, []);
 
   useEffect(() => {
