@@ -125,6 +125,8 @@ export default function ProfilePage() {
       const data = await res.json();
       if (!res.ok) { toast.error("Upload failed."); return; }
       setProfile(prev => prev ? { ...prev, avatar_url: data.avatar_url } : prev);
+      localStorage.setItem("avatar_url", data.avatar_url);
+      window.dispatchEvent(new CustomEvent("avatar-updated"));
       toast.success("Avatar updated.");
     } catch {
       toast.error("Something went wrong.");

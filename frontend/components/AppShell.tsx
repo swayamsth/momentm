@@ -245,16 +245,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [displayPoints, setDisplayPoints] = useState(0);
   const [pillVisible, setPillVisible] = useState(false);
   const [activeCosmetics, setActiveCosmetics] = useState<{effect: string; name: string}[]>([]);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    const handler = () => {
+    const onCosmetics = () => {
       try {
         const stored = localStorage.getItem("active_cosmetics");
         if (stored) setActiveCosmetics(JSON.parse(stored));
       } catch {}
     };
-    window.addEventListener("cosmetics-updated", handler);
-    return () => window.removeEventListener("cosmetics-updated", handler);
+    const onAvatar = () => {
+      const url = localStorage.getItem("avatar_url");
+      if (url) setAvatarUrl(url);
+    };
+    window.addEventListener("cosmetics-updated", onCosmetics);
+    window.addEventListener("avatar-updated", onAvatar);
+    return () => {
+      window.removeEventListener("cosmetics-updated", onCosmetics);
+      window.removeEventListener("avatar-updated", onAvatar);
+    };
   }, []);
 
   useEffect(() => {
@@ -270,6 +279,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         const cosmetics = d.active_cosmetics ?? [];
         setActiveCosmetics(cosmetics);
         localStorage.setItem("active_cosmetics", JSON.stringify(cosmetics));
+        if (d.avatar_url) {
+          setAvatarUrl(d.avatar_url);
+          localStorage.setItem("avatar_url", d.avatar_url);
+        }
       })
       .catch(() => {});
   }, []);
@@ -371,11 +384,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="glass rounded-xl p-3 flex items-center gap-3">
             <Link href="/profile" className="flex items-center gap-3 flex-1 min-w-0 rounded-lg hover:bg-accent transition-colors -mx-1 px-1 py-1">
               <div className={cn(
-                "w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm shrink-0",
+                "w-9 h-9 rounded-full overflow-hidden shrink-0",
+                !avatarUrl && "gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm",
                 activeCosmetics.some(c => c.effect === "streak_flame") && "cosmetic-avatar-flame",
                 !activeCosmetics.some(c => c.effect === "streak_flame") && activeCosmetics.some(c => c.effect === "profile_badge") && "cosmetic-avatar-badge",
               )}>
-                {initials}
+                {avatarUrl
+                  ? <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                  : initials
+                }
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium leading-tight wrap-break-word flex items-center gap-1.5 flex-wrap">

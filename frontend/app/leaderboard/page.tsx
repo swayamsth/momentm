@@ -26,6 +26,7 @@ type LeaderboardUser = {
   is_premium: boolean;
   cosmetics: string[];
   you: boolean;
+  avatar_url: string | null;
 };
 
 type Reward = {
@@ -194,8 +195,11 @@ function Row({ u }: { u: LeaderboardUser }) {
   return (
     <div className={`glass rounded-xl p-4 flex items-center gap-4 ${u.you ? "ring-2 ring-primary" : ""}`}>
       <div className="w-8 flex justify-center">{rankIcon}</div>
-      <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm shrink-0">
-        {u.name[0]}
+      <div className={cn("w-10 h-10 rounded-full overflow-hidden shrink-0", !u.avatar_url && "gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm")}>
+        {u.avatar_url
+          ? <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
+          : u.name[0]
+        }
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-medium text-sm flex items-center gap-1.5 flex-wrap">
@@ -407,8 +411,11 @@ export default function LeaderboardPage() {
                       <div className="flex justify-center mb-2">
                         {u.rank === 1 ? <Crown className="w-6 h-6 text-yellow-400" /> : <Medal className="w-5 h-5 text-muted-foreground" />}
                       </div>
-                      <div className="w-14 h-14 mx-auto rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold mb-2">
-                        {u.name[0]}
+                      <div className={cn("w-14 h-14 mx-auto rounded-full overflow-hidden mb-2", !u.avatar_url && "gradient-bg flex items-center justify-center text-primary-foreground font-semibold")}>
+                        {u.avatar_url
+                          ? <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
+                          : u.name[0]
+                        }
                       </div>
                       <div className="font-semibold text-sm">{u.name}</div>
                       <div className="text-xs text-muted-foreground">{u.points.toLocaleString()} pts</div>

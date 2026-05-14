@@ -21,22 +21,19 @@ def get_tokens_for_user(user):
 
 
 def upload_image_to_supabase(image_file, folder="posts"):
-    try:
-        from supabase import create_client
-        client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
-        ext = os.path.splitext(image_file.name)[1].lower() or '.jpg'
-        filename = f"{folder}/{uuid.uuid4()}{ext}"
-        image_bytes = image_file.read()
-        client.storage.from_(settings.SUPABASE_BUCKET).upload(
-            filename,
-            image_bytes,
-            {"content-type": image_file.content_type or "image/jpeg"}
-        )
-        public_url = client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(filename)
-        return public_url
-    except Exception as e:
-        print(f"Supabase upload error: {e}")
-        return None
+    from supabase import create_client
+    client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    ext = os.path.splitext(image_file.name)[1].lower() or '.jpg'
+    filename = f"{folder}/{uuid.uuid4()}{ext}"
+    image_bytes = image_file.read()
+    content_type = image_file.content_type or "image/jpeg"
+    client.storage.from_(settings.SUPABASE_BUCKET).upload(
+        path=filename,
+        file=image_bytes,
+        file_options={"content-type": content_type, "upsert": "true"},
+    )
+    public_url = client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(filename)
+    return public_url
 
 
 @api_view(['POST'])
@@ -806,9 +803,10 @@ def upload_loop_image_view(request, loop_id):
     if not image:
         return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    image_url = upload_image_to_supabase(image, folder="loops")
-    if not image_url:
-        return Response({'error': 'Image upload failed.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    try:
+        image_url = upload_image_to_supabase(image, folder="loops")
+    except Exception as e:
+        return Response({'error': f'Upload failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     loop.image_url = image_url
     loop.save()
@@ -1065,6 +1063,7 @@ def leaderboard_view(request):
             'is_premium': profile.is_premium_active if profile else False,
             'cosmetics': cosmetics,
             'you': user.id == request.user.id,
+            'avatar_url': profile.avatar_url if profile else None,
         })
 
     leaderboard.sort(key=lambda x: x['points'], reverse=True)
@@ -1134,6 +1133,7 @@ def loop_leaderboard_view(request, loop_id):
             'is_premium': profile.is_premium_active if profile else False,
             'cosmetics': cosmetics,
             'you': user.id == request.user.id,
+            'avatar_url': profile.avatar_url if profile else None,
         })
 
     leaderboard.sort(key=lambda x: x['points'], reverse=True)
@@ -1249,9 +1249,10 @@ def upload_avatar_view(request):
     image = request.FILES.get('image')
     if not image:
         return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
-    avatar_url = upload_image_to_supabase(image, folder="avatars")
-    if not avatar_url:
-        return Response({'error': 'Image upload failed.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    try:
+        avatar_url = upload_image_to_supabase(image, folder="avatars")
+    except Exception as e:
+        return Response({'error': f'Upload failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     try:
         profile = request.user.userprofile
     except UserProfile.DoesNotExist:
@@ -1319,6 +1320,7 @@ def rewards_view(request):
         'available_points': available,
         'is_premium': profile.is_premium_active,
         'active_cosmetics': active_cosmetics,
+        'avatar_url': profile.avatar_url or None,
         'rewards': data,
     })
 
