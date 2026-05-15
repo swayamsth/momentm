@@ -167,11 +167,13 @@ function Dashboard() {
 
   // Nutrition dialog
   const [nutritionDialogOpen, setNutritionDialogOpen] = useState(false);
-  const [nutritionCalories, setNutritionCalories] = useState(2000);
   const [nutritionProtein, setNutritionProtein] = useState(0);
   const [nutritionCarbs, setNutritionCarbs] = useState(0);
   const [nutritionFats, setNutritionFats] = useState(0);
   const [nutritionLoading, setNutritionLoading] = useState(false);
+
+  // Auto-calculate calories from macros
+  const nutritionCalories = nutritionProtein * 4 + nutritionCarbs * 4 + nutritionFats * 9;
 
   const [adjustments, setAdjustments] = useState([
     { id: 1, metric: "Daily steps", from: "8,000", to: "9,500", reason: "You've exceeded your goal 6 of 7 days." },
@@ -511,21 +513,22 @@ function Dashboard() {
             <DialogHeader><DialogTitle>Log nutrition</DialogTitle></DialogHeader>
             <form className="space-y-4 pt-2" onSubmit={handleLogNutrition}>
               <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2">
-                  <Label>Calories consumed</Label>
-                  <Input type="number" min={0} value={nutritionCalories} onChange={(e) => setNutritionCalories(parseInt(e.target.value) || 0)} required />
-                </div>
                 <div>
                   <Label>Protein (g)</Label>
-                  <Input type="number" min={0} value={nutritionProtein} onChange={(e) => setNutritionProtein(parseInt(e.target.value) || 0)} />
+                  <Input type="number" min={0} value={nutritionProtein || ""} onChange={(e) => setNutritionProtein(parseInt(e.target.value) || 0)} onBlur={(e) => { if (e.target.value === "") setNutritionProtein(0); }} />
                 </div>
                 <div>
                   <Label>Carbs (g)</Label>
-                  <Input type="number" min={0} value={nutritionCarbs} onChange={(e) => setNutritionCarbs(parseInt(e.target.value) || 0)} />
+                  <Input type="number" min={0} value={nutritionCarbs || ""} onChange={(e) => setNutritionCarbs(parseInt(e.target.value) || 0)} onBlur={(e) => { if (e.target.value === "") setNutritionCarbs(0); }} />
                 </div>
                 <div className="col-span-2">
                   <Label>Fats (g)</Label>
-                  <Input type="number" min={0} value={nutritionFats} onChange={(e) => setNutritionFats(parseInt(e.target.value) || 0)} />
+                  <Input type="number" min={0} value={nutritionFats || ""} onChange={(e) => setNutritionFats(parseInt(e.target.value) || 0)} onBlur={(e) => { if (e.target.value === "") setNutritionFats(0); }} />
+                </div>
+                <div className="col-span-2 p-3 rounded-lg bg-muted/50">
+                  <div className="text-xs text-muted-foreground mb-1">Estimated calories</div>
+                  <div className="text-2xl font-semibold">{nutritionCalories.toLocaleString()} <span className="text-sm font-normal text-muted-foreground">kcal</span></div>
+                  <div className="text-xs text-muted-foreground mt-1">Protein×4 + Carbs×4 + Fats×9</div>
                 </div>
               </div>
               <Button type="submit" className="w-full gradient-bg" disabled={nutritionLoading}>
