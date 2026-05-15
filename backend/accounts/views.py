@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import SignupSerializer
-from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership, Reward, RewardCode, ClaimedReward
+from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership, Reward, RewardCode, ClaimedReward, SleepLog, NutritionLog
 import uuid
 import os
 
@@ -21,19 +21,22 @@ def get_tokens_for_user(user):
 
 
 def upload_image_to_supabase(image_file, folder="posts"):
-    from supabase import create_client
-    client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
-    ext = os.path.splitext(image_file.name)[1].lower() or '.jpg'
-    filename = f"{folder}/{uuid.uuid4()}{ext}"
-    image_bytes = image_file.read()
-    content_type = image_file.content_type or "image/jpeg"
-    client.storage.from_(settings.SUPABASE_BUCKET).upload(
-        path=filename,
-        file=image_bytes,
-        file_options={"content-type": content_type, "upsert": "true"},
-    )
-    public_url = client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(filename)
-    return public_url
+    try:
+        from supabase import create_client
+        client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        ext = os.path.splitext(image_file.name)[1].lower() or '.jpg'
+        filename = f"{folder}/{uuid.uuid4()}{ext}"
+        image_bytes = image_file.read()
+        client.storage.from_(settings.SUPABASE_BUCKET).upload(
+            filename,
+            image_bytes,
+            {"content-type": image_file.content_type or "image/jpeg"}
+        )
+        public_url = client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(filename)
+        return public_url
+    except Exception as e:
+        print(f"Supabase upload error: {e}")
+        return None
 
 
 @api_view(['POST'])
@@ -254,13 +257,6 @@ def get_user_loop_ids(user):
     return list(set(membership_ids + created_ids))
 
 
-def _get_avatar(user):
-    try:
-        return user.userprofile.avatar_url or None
-    except UserProfile.DoesNotExist:
-        return None
-
-
 def serialize_post(post, request_user=None):
     full_name = f"{post.user.first_name} {post.user.last_name}".strip()
     comments = []
@@ -268,10 +264,8 @@ def serialize_post(post, request_user=None):
         comment_name = f"{comment.user.first_name} {comment.user.last_name}".strip()
         comments.append({
             'id': comment.id,
-            'user_id': comment.user.id,
             'user': comment_name or comment.user.email,
             'handle': comment.user.email.split('@')[0],
-            'avatar_url': _get_avatar(comment.user),
             'text': comment.text,
             'likes': comment.likes.count(),
             'liked': request_user in comment.likes.all() if request_user and request_user.is_authenticated else False,
@@ -281,10 +275,8 @@ def serialize_post(post, request_user=None):
 
     return {
         'id': post.id,
-        'user_id': post.user.id,
         'user': full_name or post.user.email,
         'handle': post.user.email.split('@')[0],
-        'avatar_url': _get_avatar(post.user),
         'text': post.text,
         'image': post.image_url or None,
         'loop': post.loop.name if post.loop else None,
@@ -330,7 +322,7 @@ def serialize_loop(loop, request_user=None):
 
 @api_view(['GET'])
 def get_posts_view(request):
-    all_posts = Post.objects.select_related('user', 'user__userprofile', 'loop').prefetch_related(
+    all_posts = Post.objects.select_related('user', 'loop').prefetch_related(
         'post_comments__user', 'post_comments__likes', 'likes'
     ).all()[:100]
 
@@ -359,13 +351,13 @@ def get_my_posts_view(request):
             return Response({'error': 'Not a member of this loop.'}, status=status.HTTP_403_FORBIDDEN)
         posts = Post.objects.filter(
             loop_id=loop_id
-        ).select_related('user', 'user__userprofile', 'loop').prefetch_related(
+        ).select_related('user', 'loop').prefetch_related(
             'post_comments__user', 'post_comments__likes', 'likes'
         )
     else:
         posts = Post.objects.filter(
             user=request.user
-        ).select_related('user', 'user__userprofile', 'loop').prefetch_related(
+        ).select_related('user', 'loop').prefetch_related(
             'post_comments__user', 'post_comments__likes', 'likes'
         )
 
@@ -385,7 +377,7 @@ def get_loop_posts_view(request, loop_id):
     if loop.is_private and loop_id not in user_loop_ids:
         return Response({'error': 'Not a member of this loop.'}, status=status.HTTP_403_FORBIDDEN)
 
-    posts = Post.objects.filter(loop=loop).select_related('user', 'user__userprofile', 'loop').prefetch_related(
+    posts = Post.objects.filter(loop=loop).select_related('user', 'loop').prefetch_related(
         'post_comments__user', 'post_comments__likes', 'likes'
     )
 
@@ -662,13 +654,12 @@ def get_available_points(user, profile=None):
 def get_active_cosmetics(user):
     from django.utils import timezone
     from django.db.models import Q
-    rows = (
+    return list(
         ClaimedReward.objects
-        .filter(user=user, reward__type='cosmetic', is_equipped=True)
+        .filter(user=user, reward__type='cosmetic')
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
-        .values_list('reward__effect', 'reward__name')
+        .values_list('reward__effect', flat=True)
     )
-    return [{'effect': effect, 'name': name} for effect, name in rows]
 
 
 @api_view(['PATCH'])
@@ -815,10 +806,9 @@ def upload_loop_image_view(request, loop_id):
     if not image:
         return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    try:
-        image_url = upload_image_to_supabase(image, folder="loops")
-    except Exception as e:
-        return Response({'error': f'Upload failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    image_url = upload_image_to_supabase(image, folder="loops")
+    if not image_url:
+        return Response({'error': 'Image upload failed.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     loop.image_url = image_url
     loop.save()
@@ -1190,19 +1180,14 @@ def leaderboard_view(request):
                 current -= timedelta(days=1)
 
         cosmetics = get_active_cosmetics(user)
-        effects = [c['effect'] for c in cosmetics]
-        title_name = next((c['name'] for c in cosmetics if c['effect'] == 'leaderboard_title'), None)
         full_name = f"{user.first_name} {user.last_name}".strip() or user.email.split('@')[0]
         leaderboard.append({
             'name': full_name,
             'points': total_points,
             'streak': display_streak,
             'is_premium': profile.is_premium_active if profile else False,
-            'cosmetics': effects,
-            'title_name': title_name,
+            'cosmetics': cosmetics,
             'you': user.id == request.user.id,
-            'avatar_url': profile.avatar_url if profile else None,
-            'user_id': user.id,
         })
 
     leaderboard.sort(key=lambda x: x['points'], reverse=True)
@@ -1264,19 +1249,14 @@ def loop_leaderboard_view(request, loop_id):
                 current -= timedelta(days=1)
 
         cosmetics = get_active_cosmetics(user)
-        effects = [c['effect'] for c in cosmetics]
-        title_name = next((c['name'] for c in cosmetics if c['effect'] == 'leaderboard_title'), None)
         full_name = f"{user.first_name} {user.last_name}".strip() or user.email.split('@')[0]
         leaderboard.append({
             'name': full_name,
             'points': total_points,
             'streak': display_streak,
             'is_premium': profile.is_premium_active if profile else False,
-            'cosmetics': effects,
-            'title_name': title_name,
+            'cosmetics': cosmetics,
             'you': user.id == request.user.id,
-            'avatar_url': profile.avatar_url if profile else None,
-            'user_id': user.id,
         })
 
     leaderboard.sort(key=lambda x: x['points'], reverse=True)
@@ -1286,191 +1266,149 @@ def loop_leaderboard_view(request, loop_id):
     return Response(leaderboard)
 
 
-# ─── Profile ──────────────────────────────────────────────────────────────────
+# ─── Sleep ────────────────────────────────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def log_sleep_view(request):
+    from django.utils import timezone
+    import datetime
+
+    try:
+        hours = float(request.data.get('hours', 0))
+    except (ValueError, TypeError):
+        return Response({'error': 'Hours must be a number.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if hours < 0 or hours > 24:
+        return Response({'error': 'Hours must be between 0 and 24.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    date_str = request.data.get('date')
+    if date_str:
+        try:
+            date = datetime.date.fromisoformat(date_str)
+        except ValueError:
+            return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        date = timezone.now().date()
+
+    log, created = SleepLog.objects.update_or_create(
+        user=request.user,
+        date=date,
+        defaults={'hours': hours},
+    )
+
+    return Response({
+        'id': log.id,
+        'hours': log.hours,
+        'date': log.date.isoformat(),
+        'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
+        'updated': not created,
+    }, status=status.HTTP_201_CREATED)
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-def public_profile_view(request, user_id):
-    try:
-        target = User.objects.get(id=user_id)
-    except User.DoesNotExist:
-        return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+def get_sleep_view(request):
+    logs = SleepLog.objects.filter(user=request.user)[:14]
+    data = [{
+        'id': log.id,
+        'hours': log.hours,
+        'date': log.date.isoformat(),
+        'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
+    } for log in logs]
+    return Response(data)
 
-    try:
-        profile = target.userprofile
-    except UserProfile.DoesNotExist:
-        profile = None
 
-    full_name = f"{target.first_name} {target.last_name}".strip() or target.email.split('@')[0]
+# ─── Nutrition ────────────────────────────────────────────────────────────────
 
-    if profile and not profile.is_public:
-        return Response({
-            'is_private': True,
-            'full_name': full_name,
-            'avatar_url': profile.avatar_url or None,
-        })
-
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def log_nutrition_view(request):
     from django.utils import timezone
-    from django.db.models import Q
-    from datetime import timedelta
+    import datetime
 
-    total_points = compute_user_points(target, profile)
-    total_activities = ActivityLog.objects.filter(user=target).count()
+    try:
+        calories = int(request.data.get('calories', 0))
+        protein = int(request.data.get('protein', 0))
+        carbs = int(request.data.get('carbs', 0))
+        fats = int(request.data.get('fats', 0))
+    except (ValueError, TypeError):
+        return Response({'error': 'All values must be numbers.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    logs_dates = sorted(set(
-        ActivityLog.objects.filter(user=target).values_list('logged_at__date', flat=True)
-    ))
-    best_streak = 0
-    if logs_dates:
-        best = current = 1
-        for i in range(1, len(logs_dates)):
-            if (logs_dates[i] - logs_dates[i - 1]).days == 1:
-                current += 1
-                best = max(best, current)
-            else:
-                current = 1
-        best_streak = best
+    if calories < 0 or protein < 0 or carbs < 0 or fats < 0:
+        return Response({'error': 'Values cannot be negative.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    loops_count = (
-        LoopMembership.objects.filter(user=target, status='approved').count()
-        + Loop.objects.filter(created_by=target).count()
+    if calories > 10000:
+        return Response({'error': 'Calories seem too high (max 10,000).'}, status=status.HTTP_400_BAD_REQUEST)
+
+    date_str = request.data.get('date')
+    if date_str:
+        try:
+            date = datetime.date.fromisoformat(date_str)
+        except ValueError:
+            return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        date = timezone.now().date()
+
+    log, created = NutritionLog.objects.update_or_create(
+        user=request.user,
+        date=date,
+        defaults={
+            'calories': calories,
+            'protein': protein,
+            'carbs': carbs,
+            'fats': fats,
+        },
     )
 
-    claimed = ClaimedReward.objects.filter(
-        user=target, reward__type='cosmetic', is_equipped=True
-    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).select_related('reward')
-    cosmetics = [{
-        'id': c.id,
-        'name': c.reward.name,
-        'effect': c.reward.effect,
-        'icon': c.reward.icon,
-        'color': c.reward.color,
-    } for c in claimed]
-
-    memberships = LoopMembership.objects.filter(user=target, status='approved').select_related('loop')
-    created_loops = Loop.objects.filter(created_by=target)
-    seen_ids = set()
-    loops = []
-    for m in memberships:
-        seen_ids.add(m.loop.id)
-        loops.append({'id': m.loop.id, 'name': m.loop.name, 'image_url': m.loop.image_url})
-    for l in created_loops:
-        if l.id not in seen_ids:
-            loops.append({'id': l.id, 'name': l.name, 'image_url': l.image_url})
-
     return Response({
-        'is_private': False,
-        'full_name': full_name,
-        'avatar_url': profile.avatar_url if profile else None,
-        'bio': profile.bio if profile else '',
-        'is_premium': profile.is_premium_active if profile else False,
-        'member_since': target.date_joined.strftime('%b %Y'),
-        'stats': {
-            'total_points': total_points,
-            'total_activities': total_activities,
-            'best_streak': best_streak,
-            'loops_count': loops_count,
-        },
-        'cosmetics': cosmetics,
-        'loops': loops,
-    })
+        'id': log.id,
+        'calories': log.calories,
+        'protein': log.protein,
+        'carbs': log.carbs,
+        'fats': log.fats,
+        'date': log.date.isoformat(),
+        'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
+        'updated': not created,
+    }, status=status.HTTP_201_CREATED)
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_nutrition_view(request):
+    logs = NutritionLog.objects.filter(user=request.user)[:14]
+    data = [{
+        'id': log.id,
+        'calories': log.calories,
+        'protein': log.protein,
+        'carbs': log.carbs,
+        'fats': log.fats,
+        'date': log.date.isoformat(),
+        'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
+    } for log in logs]
+    return Response(data)
+
+
+# ─── Profile ──────────────────────────────────────────────────────────────────
 
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def profile_view(request):
-    from django.utils import timezone
-
-    user = request.user
-    try:
-        profile = user.userprofile
-    except UserProfile.DoesNotExist:
-        profile = UserProfile.objects.create(user=user)
-
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
     if request.method == 'PATCH':
-        data = request.data
-        if 'first_name' in data:
-            user.first_name = data['first_name'].strip()
-        if 'last_name' in data:
-            user.last_name = data['last_name'].strip()
-        user.save()
-        if 'bio' in data:
-            profile.bio = data['bio']
-        if 'is_public' in data:
-            profile.is_public = bool(data['is_public'])
+        bio = request.data.get('bio', profile.bio)
+        is_public = request.data.get('is_public', profile.is_public)
+        profile.bio = bio
+        profile.is_public = is_public
         profile.save()
-
-    # ── Lifetime stats ──
-    total_points = compute_user_points(user, profile)
-    total_activities = ActivityLog.objects.filter(user=user).count()
-
-    logs_dates = sorted(set(
-        ActivityLog.objects.filter(user=user).values_list('logged_at__date', flat=True)
-    ))
-    best_streak = 0
-    if logs_dates:
-        from datetime import timedelta
-        best = current = 1
-        for i in range(1, len(logs_dates)):
-            if (logs_dates[i] - logs_dates[i - 1]).days == 1:
-                current += 1
-                best = max(best, current)
-            else:
-                current = 1
-        best_streak = best
-
-    loops_count = LoopMembership.objects.filter(
-        user=user, status='approved'
-    ).count() + Loop.objects.filter(created_by=user).count()
-
-    # ── Cosmetics ──
-    claimed = ClaimedReward.objects.filter(
-        user=user, reward__type='cosmetic'
-    ).select_related('reward')
-    cosmetics = [{
-        'id': c.id,
-        'name': c.reward.name,
-        'effect': c.reward.effect,
-        'icon': c.reward.icon,
-        'color': c.reward.color,
-        'is_active': c.is_equipped,
-        'claimed_at': c.claimed_at.strftime('%b %d, %Y'),
-    } for c in claimed]
-
-    # ── Loops ──
-    memberships = LoopMembership.objects.filter(
-        user=user, status='approved'
-    ).select_related('loop')
-    created = Loop.objects.filter(created_by=user)
-    loop_ids_seen = set()
-    loops = []
-    for m in memberships:
-        loop_ids_seen.add(m.loop.id)
-        loops.append({'id': m.loop.id, 'name': m.loop.name, 'image_url': m.loop.image_url})
-    for l in created:
-        if l.id not in loop_ids_seen:
-            loops.append({'id': l.id, 'name': l.name, 'image_url': l.image_url})
-
-    full_name = f"{user.first_name} {user.last_name}".strip() or user.email.split('@')[0]
-
     return Response({
-        'first_name': user.first_name,
-        'last_name': user.last_name,
-        'full_name': full_name,
-        'email': user.email,
+        'email': request.user.email,
+        'first_name': request.user.first_name,
+        'last_name': request.user.last_name,
         'bio': profile.bio,
         'is_public': profile.is_public,
+        'avatar_url': profile.avatar_url,
         'is_premium': profile.is_premium_active,
-        'avatar_url': profile.avatar_url or None,
-        'member_since': user.date_joined.strftime('%b %Y'),
-        'stats': {
-            'total_points': total_points,
-            'total_activities': total_activities,
-            'best_streak': best_streak,
-            'loops_count': loops_count,
-        },
-        'cosmetics': cosmetics,
-        'loops': loops,
     })
 
 
@@ -1480,29 +1418,42 @@ def upload_avatar_view(request):
     image = request.FILES.get('image')
     if not image:
         return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
-    try:
-        avatar_url = upload_image_to_supabase(image, folder="avatars")
-    except Exception as e:
-        return Response({'error': f'Upload failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    try:
-        profile = request.user.userprofile
-    except UserProfile.DoesNotExist:
-        profile = UserProfile.objects.create(user=request.user)
-    profile.avatar_url = avatar_url
+    image_url = upload_image_to_supabase(image, folder="avatars")
+    if not image_url:
+        return Response({'error': 'Upload failed.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    profile.avatar_url = image_url
     profile.save()
-    return Response({'avatar_url': avatar_url})
+    return Response({'avatar_url': image_url})
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def toggle_cosmetic_view(request, claimed_id):
     try:
-        claim = ClaimedReward.objects.get(id=claimed_id, user=request.user, reward__type='cosmetic')
+        claimed = ClaimedReward.objects.get(id=claimed_id, user=request.user)
+        claimed.is_equipped = not claimed.is_equipped
+        claimed.save()
+        return Response({'is_equipped': claimed.is_equipped})
     except ClaimedReward.DoesNotExist:
         return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
-    claim.is_equipped = not claim.is_equipped
-    claim.save()
-    return Response({'id': claim.id, 'is_equipped': claim.is_equipped})
+
+
+@api_view(['GET'])
+def public_profile_view(request, user_id):
+    try:
+        user = User.objects.get(id=user_id)
+        profile = UserProfile.objects.get(user=user)
+        if not profile.is_public:
+            return Response({'error': 'This profile is private.'}, status=status.HTTP_403_FORBIDDEN)
+        return Response({
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'bio': profile.bio,
+            'avatar_url': profile.avatar_url,
+        })
+    except (User.DoesNotExist, UserProfile.DoesNotExist):
+        return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
 
 # ─── Rewards ──────────────────────────────────────────────────────────────────
@@ -1538,20 +1489,9 @@ def rewards_view(request):
             'in_stock': has_codes,
         })
 
-    from django.utils import timezone
-    from django.db.models import Q
-    active_cosmetics = [
-        {'effect': cr.reward.effect, 'name': cr.reward.name}
-        for cr in ClaimedReward.objects.filter(
-            user=request.user, reward__type='cosmetic', is_equipped=True
-        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).select_related('reward')
-    ]
-
     return Response({
         'available_points': available,
         'is_premium': profile.is_premium_active,
-        'active_cosmetics': active_cosmetics,
-        'avatar_url': profile.avatar_url or None,
         'rewards': data,
     })
 

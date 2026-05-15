@@ -167,6 +167,37 @@ class ActivityLog(models.Model):
         ordering = ['-logged_at']
 
 
+class SleepLog(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sleep_logs')
+    hours = models.FloatField(help_text="Hours of sleep")
+    date = models.DateField()
+    logged_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.email} - {self.hours}hrs on {self.date}"
+
+    class Meta:
+        ordering = ['-date']
+        unique_together = ('user', 'date')
+
+
+class NutritionLog(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='nutrition_logs')
+    calories = models.IntegerField(help_text="Calories consumed")
+    protein = models.IntegerField(default=0, help_text="Protein in grams")
+    carbs = models.IntegerField(default=0, help_text="Carbs in grams")
+    fats = models.IntegerField(default=0, help_text="Fats in grams")
+    date = models.DateField()
+    logged_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.email} - {self.calories}kcal on {self.date}"
+
+    class Meta:
+        ordering = ['-date']
+        unique_together = ('user', 'date')
+
+
 class Reward(models.Model):
     REWARD_TYPES = [
         ('cosmetic', 'Cosmetic'),
@@ -202,8 +233,7 @@ class ClaimedReward(models.Model):
     cost_at_claim = models.IntegerField()
     code = models.CharField(max_length=100, blank=True, default='')
     claimed_at = models.DateTimeField(auto_now_add=True)
-
-expires_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
     is_equipped = models.BooleanField(default=True)
 
     def __str__(self):
