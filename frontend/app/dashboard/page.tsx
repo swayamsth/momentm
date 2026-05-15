@@ -167,6 +167,7 @@ function Dashboard() {
 
   // Nutrition dialog
   const [nutritionDialogOpen, setNutritionDialogOpen] = useState(false);
+  const [nutritionMeal, setNutritionMeal] = useState("");
   const [nutritionProtein, setNutritionProtein] = useState(0);
   const [nutritionCarbs, setNutritionCarbs] = useState(0);
   const [nutritionFats, setNutritionFats] = useState(0);
@@ -306,6 +307,10 @@ function Dashboard() {
         const data = await res.json();
         setNutritionLogs([data, ...nutritionLogs.filter(n => n.date !== today)]);
         setNutritionDialogOpen(false);
+        setNutritionMeal("");
+        setNutritionProtein(0);
+        setNutritionCarbs(0);
+        setNutritionFats(0);
       }
     } catch { console.log("Nutrition log failed"); }
     finally { setNutritionLoading(false); }
@@ -513,6 +518,10 @@ function Dashboard() {
             <DialogHeader><DialogTitle>Log nutrition</DialogTitle></DialogHeader>
             <form className="space-y-4 pt-2" onSubmit={handleLogNutrition}>
               <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <Label>Meal name</Label>
+                  <Input type="text" placeholder="e.g. Breakfast, Chicken salad..." value={nutritionMeal} onChange={(e) => setNutritionMeal(e.target.value)} required />
+                </div>
                 <div>
                   <Label>Protein (g)</Label>
                   <Input type="number" min={0} value={nutritionProtein || ""} onChange={(e) => setNutritionProtein(parseInt(e.target.value) || 0)} onBlur={(e) => { if (e.target.value === "") setNutritionProtein(0); }} />
