@@ -44,6 +44,11 @@ urlpatterns = [
     # Activities
     path('activities/', views.get_activities_view, name='get-activities'),
     path('activities/log/', views.log_activity_view, name='log-activity'),
+    # Profile
+    path('profile/', views.profile_view, name='profile'),
+    path('profile/upload-avatar/', views.upload_avatar_view, name='upload-avatar'),
+    path('profile/cosmetics/<int:claimed_id>/toggle/', views.toggle_cosmetic_view, name='toggle-cosmetic'),
+    path('profile/<int:user_id>/', views.public_profile_view, name='public-profile'),
     # Leaderboard
     path('leaderboard/', views.leaderboard_view, name='leaderboard'),
     path('loops/<int:loop_id>/leaderboard/', views.loop_leaderboard_view, name='loop-leaderboard'),

@@ -136,6 +136,34 @@
   }
   .gradient-bg { background: var(--gradient-primary); }
 
+  /* ── Cosmetic: avatar rings ── */
+  .cosmetic-avatar-flame {
+    animation: avatar-flame-ring 1.6s ease-in-out infinite;
+  }
+  @keyframes avatar-flame-ring {
+    0%, 100% {
+      box-shadow: 0 0 0 2px oklch(0.78 0.24 38 / 0.9),
+                  0 0 10px oklch(0.72 0.24 30 / 0.6);
+    }
+    40% {
+      box-shadow: 0 0 0 2.5px oklch(0.88 0.30 50 / 1),
+                  0 0 18px oklch(0.75 0.30 40 / 0.85);
+    }
+  }
+  .cosmetic-avatar-badge {
+    animation: avatar-badge-ring 2.2s ease-in-out infinite;
+  }
+  @keyframes avatar-badge-ring {
+    0%, 100% {
+      box-shadow: 0 0 0 2px oklch(0.82 0.18 85 / 0.8),
+                  0 0 8px oklch(0.80 0.20 80 / 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 2.5px oklch(0.92 0.24 88 / 1),
+                  0 0 20px oklch(0.88 0.26 80 / 0.75);
+    }
+  }
+
   /* ── Cosmetic: streak flame ── */
   .cosmetic-flame svg {
     color: oklch(0.78 0.24 38);

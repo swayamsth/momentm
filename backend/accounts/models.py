@@ -47,6 +47,9 @@ class UserProfile(models.Model):
     two_factor_otp_created_at = models.DateTimeField(blank=True, null=True)
     is_premium = models.BooleanField(default=False)
     premium_expires_at = models.DateTimeField(blank=True, null=True)
+    bio = models.TextField(blank=True, default='')
+    is_public = models.BooleanField(default=True)
+    avatar_url = models.URLField(max_length=1000, blank=True, null=True)
 
     @property
     def is_premium_active(self):
@@ -199,7 +202,9 @@ class ClaimedReward(models.Model):
     cost_at_claim = models.IntegerField()
     code = models.CharField(max_length=100, blank=True, default='')
     claimed_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(blank=True, null=True)
+
+expires_at = models.DateTimeField(null=True, blank=True)
+    is_equipped = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.user.email} - {self.reward.name}"

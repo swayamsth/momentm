@@ -19,6 +19,7 @@ import {
 } from "recharts";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
 
 // ── Use env var so it works in Docker (backend:8000) and locally (127.0.0.1:8000)
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
@@ -41,11 +42,11 @@ interface ActivityLog {
   logged_at: string;
 }
 
-function Stat({ icon: Icon, label, value, unit, trend, color }: any) {
+function Stat({ icon: Icon, label, value, unit, trend, color, cosmeticClass }: any) {
   return (
     <Card className="glass border-0 p-5">
       <div className="flex items-start justify-between mb-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `color-mix(in oklab, ${color} 15%, transparent)` }}>
+        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", cosmeticClass)} style={{ background: `color-mix(in oklab, ${color} 15%, transparent)` }}>
           <Icon className="w-5 h-5" style={{ color }} />
         </div>
         <Badge variant="secondary" className="text-xs">+{trend}%</Badge>
@@ -171,6 +172,8 @@ function Dashboard() {
   const [screenshot, setScreenshot] = useState<File | null>(null);
   const [verificationResult, setVerificationResult] = useState<{ status: string; reason: string } | null>(null);
 
+  const [activeEffects, setActiveEffects] = useState<string[]>([]);
+
   const [adjustments, setAdjustments] = useState([
     { id: 1, metric: "Daily steps", from: "8,000", to: "9,500", reason: "You've exceeded your goal 6 of 7 days." },
     { id: 2, metric: "Sleep window", from: "7h", to: "7h 30m", reason: "Recovery scores trending down on low-sleep days." },
@@ -207,6 +210,13 @@ function Dashboard() {
       console.log("Could not fetch activities");
     }
   };
+
+  useEffect(() => {
+    try {
+      const cosm = localStorage.getItem("active_cosmetics");
+      if (cosm) setActiveEffects(JSON.parse(cosm).map((c: {effect: string}) => c.effect));
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -470,7 +480,8 @@ function Dashboard() {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <Stat icon={Moon} label="Sleep" value="7.4" unit="hrs" trend={5} color="oklch(0.55 0.18 300)" />
-          <Stat icon={Star} label="Total points" value={totalPoints.toLocaleString()} unit="pts" trend={10} color="oklch(0.75 0.18 85)" />
+
+<Stat icon={Star} label="Total points" value={totalPoints.toLocaleString()} unit="pts" trend={10} color="oklch(0.75 0.18 85)" />
         </div>
 
         {/* Charts */}
