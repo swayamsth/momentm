@@ -281,9 +281,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         const cosmetics = d.active_cosmetics ?? [];
         setActiveCosmetics(cosmetics);
         localStorage.setItem("active_cosmetics", JSON.stringify(cosmetics));
+        setAvatarUrl(d.avatar_url ?? null);
         if (d.avatar_url) {
-          setAvatarUrl(d.avatar_url);
           localStorage.setItem("avatar_url", d.avatar_url);
+        } else {
+          localStorage.removeItem("avatar_url");
         }
       })
       .catch(() => {});
@@ -323,6 +325,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
     localStorage.removeItem("user");
+    localStorage.removeItem("avatar_url");
+    localStorage.removeItem("active_cosmetics");
     router.push("/");
   };
 
