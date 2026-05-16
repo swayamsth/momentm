@@ -53,12 +53,12 @@ class UserProfile(models.Model):
 
     @property
     def is_premium_active(self):
+        from django.utils import timezone
         if not self.is_premium:
             return False
-        if self.premium_expires_at:
-            from django.utils import timezone
-            return timezone.now() < self.premium_expires_at
-        return True  # no expiry = paying subscriber
+        if self.premium_expires_at is None:
+            return True
+        return self.premium_expires_at > timezone.now()
 
     def is_2fa_otp_expired(self):
         if not self.two_factor_otp_created_at:
@@ -85,7 +85,6 @@ class Loop(models.Model):
     is_private = models.BooleanField(default=False)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_loops')
     created_at = models.DateTimeField(auto_now_add=True)
-    # ── NEW: group image ──
     image_url = models.URLField(max_length=1000, blank=True, null=True)
 
     def __str__(self):
@@ -142,11 +141,23 @@ class Comment(models.Model):
 
 
 class ActivityLog(models.Model):
+    VERIFICATION_STATUS = [
+        ('pending', 'Pending'),
+        ('verified', 'Verified'),
+        ('rejected', 'Rejected'),
+    ]
+
+    ALLOWED_ACTIVITIES = ['Run', 'Swim', 'Cycle', 'Strength', 'Skipping']
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='activity_logs')
     activity = models.CharField(max_length=100)
     duration = models.IntegerField(help_text="Duration in minutes")
     steps = models.IntegerField(default=0)
     calories = models.IntegerField(default=0)
+    selfie_url = models.URLField(max_length=1000, blank=True, null=True)
+    screenshot_url = models.URLField(max_length=1000, blank=True, null=True)
+    is_verified = models.BooleanField(default=False)
+    verification_status = models.CharField(max_length=20, choices=VERIFICATION_STATUS, default='pending')
     logged_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -156,50 +167,74 @@ class ActivityLog(models.Model):
         ordering = ['-logged_at']
 
 
+class SleepLog(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sleep_logs')
+    hours = models.FloatField(help_text="Hours of sleep")
+    date = models.DateField()
+    logged_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.email} - {self.hours}hrs on {self.date}"
+
+    class Meta:
+        ordering = ['-date']
+        unique_together = ('user', 'date')
+
+
+class NutritionLog(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='nutrition_logs')
+    calories = models.IntegerField(help_text="Calories consumed")
+    protein = models.IntegerField(default=0, help_text="Protein in grams")
+    carbs = models.IntegerField(default=0, help_text="Carbs in grams")
+    fats = models.IntegerField(default=0, help_text="Fats in grams")
+    date = models.DateField()
+    logged_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.email} - {self.calories}kcal on {self.date}"
+
+    class Meta:
+        ordering = ['-date']
+        unique_together = ('user', 'date')
+
+
 class Reward(models.Model):
-    TYPES = [
+    REWARD_TYPES = [
         ('cosmetic', 'Cosmetic'),
         ('subscription', 'Subscription'),
         ('real_world', 'Real World'),
     ]
     name = models.CharField(max_length=100)
-    description = models.CharField(max_length=255)
-    type = models.CharField(max_length=20, choices=TYPES)
-    effect = models.CharField(max_length=50, blank=True)
+    description = models.TextField(blank=True, default='')
+    type = models.CharField(max_length=20, choices=REWARD_TYPES)
+    effect = models.CharField(max_length=100, blank=True, default='')
     cost = models.IntegerField()
+    icon = models.CharField(max_length=10, blank=True, default='🎁')
+    color = models.CharField(max_length=50, blank=True, default='')
     metadata = models.JSONField(default=dict, blank=True)
-    icon = models.CharField(max_length=50, default='trophy')
-    color = models.CharField(max_length=50, default='oklch(0.6 0.22 255)')
     is_active = models.BooleanField(default=True)
-    order = models.IntegerField(default=0)
 
     def __str__(self):
-        return f"{self.name} ({self.type}) — {self.cost} pts"
-
-    class Meta:
-        ordering = ['order', 'cost']
+        return self.name
 
 
 class RewardCode(models.Model):
     reward = models.ForeignKey(Reward, on_delete=models.CASCADE, related_name='codes')
-    code = models.CharField(max_length=200, unique=True)
+    code = models.CharField(max_length=100)
     is_claimed = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"{self.reward.name} — {self.code} ({'claimed' if self.is_claimed else 'available'})"
+        return f"{self.reward.name} - {self.code}"
 
 
 class ClaimedReward(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='claimed_rewards')
-    reward = models.ForeignKey(Reward, on_delete=models.PROTECT, related_name='claims')
+    reward = models.ForeignKey(Reward, on_delete=models.CASCADE)
     cost_at_claim = models.IntegerField()
-    code = models.CharField(max_length=200, blank=True)
+    code = models.CharField(max_length=100, blank=True, default='')
     claimed_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     is_equipped = models.BooleanField(default=True)
 
     def __str__(self):
-        return f"{self.user.email} — {self.reward.name}"
-
-    class Meta:
-        ordering = ['-claimed_at']
+        return f"{self.user.email} - {self.reward.name}"

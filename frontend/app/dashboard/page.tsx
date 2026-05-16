@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Footprints, Flame, Moon, TrendingUp, Sparkles, Plus, Check, X, Award, Settings, LogOut, Clock, Dumbbell,
+  Footprints, Flame, Moon, TrendingUp, Sparkles, Plus, Check, X, Award, Settings, LogOut, Clock, Dumbbell, Star, Bell, Utensils,
 } from "lucide-react";
 import {
   AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -21,14 +21,10 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const ACTIVITY_TYPES = [
-  "Run", "Swim", "Cycle", "Skipping", "Strength", "Sports", "Walk", "Yoga", "HIIT", "Other"
-];
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 
-const consistency = [
-  { day: "Mon", v: 80 }, { day: "Tue", v: 92 }, { day: "Wed", v: 65 },
-  { day: "Thu", v: 88 }, { day: "Fri", v: 95 }, { day: "Sat", v: 72 }, { day: "Sun", v: 90 },
-];
+const ACTIVITY_TYPES = ["Run", "Swim", "Cycle", "Strength", "Skipping"];
+const WEEKLY_GOAL = 5;
 
 interface ActivityLog {
   id: number;
@@ -37,16 +33,42 @@ interface ActivityLog {
   steps: number;
   calories: number;
   logged_at: string;
+  is_verified?: boolean;
+  verification_status?: string;
 }
 
-function Stat({ icon: Icon, label, value, unit, trend, color, cosmeticClass }: any) {
+interface SleepLog {
+  id: number;
+  hours: number;
+  date: string;
+}
+
+interface NutritionLog {
+  id: number;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fats: number;
+  date: string;
+}
+
+interface Notification {
+  id: string;
+  type: string;
+  message: string;
+  time: string;
+  read: boolean;
+  membership_id?: number;
+  loop_id?: number;
+}
+
+function Stat({ icon: Icon, label, value, unit, color, onClick }: any) {
   return (
-    <Card className="glass border-0 p-5">
+    <Card className={cn("glass border-0 p-5", onClick && "cursor-pointer hover:ring-2 hover:ring-primary/30 transition-all")} onClick={onClick}>
       <div className="flex items-start justify-between mb-3">
-        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", cosmeticClass)} style={{ background: `color-mix(in oklab, ${color} 15%, transparent)` }}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `color-mix(in oklab, ${color} 15%, transparent)` }}>
           <Icon className="w-5 h-5" style={{ color }} />
         </div>
-        <Badge variant="secondary" className="text-xs">+{trend}%</Badge>
       </div>
       <div className="text-2xl font-semibold tracking-tight">{value}<span className="text-sm font-normal text-muted-foreground ml-1">{unit}</span></div>
       <div className="text-xs text-muted-foreground mt-1">{label}</div>
@@ -54,7 +76,6 @@ function Stat({ icon: Icon, label, value, unit, trend, color, cosmeticClass }: a
   );
 }
 
-// Check if a logged_at string (e.g. "May 04, 19:30") is from today
 function isToday(loggedAt: string): boolean {
   const today = new Date();
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -62,21 +83,98 @@ function isToday(loggedAt: string): boolean {
   return loggedAt.startsWith(todayStr);
 }
 
+function parseLoggedAt(loggedAt: string): Date | null {
+  try {
+    const year = new Date().getFullYear();
+    return new Date(`${loggedAt} ${year}`);
+  } catch {
+    return null;
+  }
+}
+
+function calcStreak(logs: ActivityLog[]): number {
+  if (logs.length === 0) return 0;
+  const dateStrings = new Set<string>();
+  for (const log of logs) {
+    const d = parseLoggedAt(log.logged_at);
+    if (d) dateStrings.add(d.toDateString());
+  }
+  let streak = 0;
+  const check = new Date();
+  check.setHours(0, 0, 0, 0);
+  while (dateStrings.has(check.toDateString())) {
+    streak++;
+    check.setDate(check.getDate() - 1);
+  }
+  if (streak === 0) {
+    check.setDate(check.getDate() - 1);
+    while (dateStrings.has(check.toDateString())) {
+      streak++;
+      check.setDate(check.getDate() - 1);
+    }
+  }
+  return streak;
+}
+
+function countWeeklyWorkouts(logs: ActivityLog[]): number {
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  weekAgo.setHours(0, 0, 0, 0);
+  return logs.filter((a) => {
+    const d = parseLoggedAt(a.logged_at);
+    return d && d >= weekAgo;
+  }).length;
+}
+
+function calcConsistencyScore(weeklyWorkouts: number): number {
+  return Math.min(Math.round((weeklyWorkouts / WEEKLY_GOAL) * 100), 100);
+}
+
+function getConsistencyLabel(score: number): string {
+  if (score >= 90) return "Excellent";
+  if (score >= 70) return "Great";
+  if (score >= 50) return "Good";
+  if (score >= 30) return "Fair";
+  return "Keep going";
+}
+
 function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<{ email: string; first_name: string; last_name: string; two_factor_enabled?: boolean } | null>(null);
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [trendData, setTrendData] = useState<{ day: string; steps: number; calories: number }[]>([]);
+  const [sleepLogs, setSleepLogs] = useState<SleepLog[]>([]);
+  const [nutritionLogs, setNutritionLogs] = useState<NutritionLog[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  // Activity log dialog
   const [dialogOpen, setDialogOpen] = useState(false);
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState("");
-
   const [activityName, setActivityName] = useState("Run");
   const [duration, setDuration] = useState(45);
   const [steps, setSteps] = useState(0);
   const [calories, setCalories] = useState(0);
+  const [selfie, setSelfie] = useState<File | null>(null);
+  const [screenshot, setScreenshot] = useState<File | null>(null);
+  const [verificationResult, setVerificationResult] = useState<{ status: string; reason: string } | null>(null);
 
-  const [activeEffects, setActiveEffects] = useState<string[]>([]);
+  // Sleep dialog
+  const [sleepDialogOpen, setSleepDialogOpen] = useState(false);
+  const [sleepHours, setSleepHours] = useState(7.5);
+  const [sleepLoading, setSleepLoading] = useState(false);
+
+  // Nutrition dialog
+  const [nutritionDialogOpen, setNutritionDialogOpen] = useState(false);
+  const [nutritionMeal, setNutritionMeal] = useState("");
+  const [nutritionProtein, setNutritionProtein] = useState(0);
+  const [nutritionCarbs, setNutritionCarbs] = useState(0);
+  const [nutritionFats, setNutritionFats] = useState(0);
+  const [nutritionLoading, setNutritionLoading] = useState(false);
+
+  // Auto-calculate calories from macros
+  const nutritionCalories = nutritionProtein * 4 + nutritionCarbs * 4 + nutritionFats * 9;
 
   const [adjustments, setAdjustments] = useState([
     { id: 1, metric: "Daily steps", from: "8,000", to: "9,500", reason: "You've exceeded your goal 6 of 7 days." },
@@ -84,52 +182,41 @@ function Dashboard() {
   ]);
 
   const buildTrend = (data: ActivityLog[]) => {
-    const trend = data.slice(0, 14).reverse().map((log, i) => ({
+    if (data.length === 0) return [];
+    return data.slice(0, 14).reverse().map((log, i) => ({
       day: `D${i + 1}`,
       steps: log.steps,
       calories: log.calories,
     }));
-    if (trend.length < 14) {
-      const padded = Array.from({ length: 14 - trend.length }, (_, i) => ({
-        day: `D${i + 1}`,
-        steps: 4000 + Math.round(Math.sin(i / 2) * 2000 + Math.random() * 1500),
-        calories: 1800 + Math.round(Math.cos(i / 3) * 300 + Math.random() * 200),
-      }));
-      return [...padded, ...trend].map((d, i) => ({ ...d, day: `D${i + 1}` }));
-    }
-    return trend;
   };
 
-  const fetchActivities = async (token: string) => {
+  const fetchAll = async (token: string) => {
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/activities/", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data: ActivityLog[] = await res.json();
+      const [actRes, sleepRes, nutritionRes, notifRes] = await Promise.all([
+        fetch(`${API}/activities/`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API}/sleep/`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API}/nutrition/`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API}/notifications/`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (actRes.ok) {
+        const data: ActivityLog[] = await actRes.json();
         setActivities(data);
         setTrendData(buildTrend(data));
       }
+      if (sleepRes.ok) setSleepLogs(await sleepRes.json());
+      if (nutritionRes.ok) setNutritionLogs(await nutritionRes.json());
+      if (notifRes.ok) setNotifications(await notifRes.json());
     } catch {
-      console.log("Could not fetch activities");
+      console.log("Could not fetch data");
     }
   };
-
-  useEffect(() => {
-    try {
-      const cosm = localStorage.getItem("active_cosmetics");
-      if (cosm) setActiveEffects(JSON.parse(cosm).map((c: {effect: string}) => c.effect));
-    } catch {}
-  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
     const stored = localStorage.getItem("user");
     if (!token || !stored) { router.push("/"); return; }
     setUser(JSON.parse(stored));
-    fetch("http://127.0.0.1:8000/api/dashboard/", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    fetch(`${API}/dashboard/`, { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => res.json())
       .then((data) => {
         if (data.user) {
@@ -137,36 +224,42 @@ function Dashboard() {
           localStorage.setItem("user", JSON.stringify(updatedUser));
           setUser(updatedUser);
         }
-      })
-      .catch(() => {});
-    fetchActivities(token);
+      }).catch(() => {});
+    fetchAll(token);
   }, []);
 
   const handleLogActivity = async (e: React.FormEvent) => {
     e.preventDefault();
     setLogLoading(true);
     setLogError("");
+    setVerificationResult(null);
     const token = localStorage.getItem("access_token");
     if (!token) return;
+    if (!selfie) { setLogError("Please upload a selfie photo."); setLogLoading(false); return; }
+    if (!screenshot) { setLogError("Please upload a screenshot of your fitness app."); setLogLoading(false); return; }
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/activities/log/", {
+      const formData = new FormData();
+      formData.append("activity", activityName);
+      formData.append("duration", String(duration));
+      formData.append("steps", String(steps));
+      formData.append("calories", String(calories));
+      formData.append("selfie", selfie);
+      formData.append("screenshot", screenshot);
+      const res = await fetch(`${API}/activities/log/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ activity: activityName, duration, steps, calories }),
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
       });
       const data = await res.json();
       if (res.ok) {
         const updated = [data, ...activities];
         setActivities(updated);
         setTrendData(buildTrend(updated));
-        setDialogOpen(false);
-        setActivityName("Run");
-        setDuration(45);
-        setSteps(0);
-        setCalories(0);
+        setVerificationResult({ status: data.verification_status, reason: data.verification_reason });
+        if (data.verification_status === "verified") {
+          setTimeout(() => { setDialogOpen(false); setVerificationResult(null); }, 2000);
+        }
+        setActivityName("Run"); setDuration(45); setSteps(0); setCalories(0); setSelfie(null); setScreenshot(null);
       } else {
         setLogError(data.error || "Failed to log activity.");
       }
@@ -177,13 +270,55 @@ function Dashboard() {
     }
   };
 
+  const handleLogSleep = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSleepLoading(true);
+    const token = localStorage.getItem("access_token");
+    if (!token) return;
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const res = await fetch(`${API}/sleep/log/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ hours: sleepHours, date: today }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSleepLogs([data, ...sleepLogs.filter(s => s.date !== today)]);
+        setSleepDialogOpen(false);
+      }
+    } catch { console.log("Sleep log failed"); }
+    finally { setSleepLoading(false); }
+  };
+
+  const handleLogNutrition = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNutritionLoading(true);
+    const token = localStorage.getItem("access_token");
+    if (!token) return;
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const res = await fetch(`${API}/nutrition/log/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ calories: nutritionCalories, protein: nutritionProtein, carbs: nutritionCarbs, fats: nutritionFats, date: today }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setNutritionLogs([data, ...nutritionLogs.filter(n => n.date !== today)]);
+        setNutritionDialogOpen(false);
+        setNutritionMeal("");
+        setNutritionProtein(0);
+        setNutritionCarbs(0);
+        setNutritionFats(0);
+      }
+    } catch { console.log("Nutrition log failed"); }
+    finally { setNutritionLoading(false); }
+  };
+
   const handleLogout = () => {
     const refresh = localStorage.getItem("refresh_token");
-    fetch("http://127.0.0.1:8000/api/logout/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh }),
-    }).catch(() => {});
+    fetch(`${API}/logout/`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh }) }).catch(() => {});
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
     localStorage.removeItem("user");
@@ -197,11 +332,19 @@ function Dashboard() {
     return "Good evening";
   };
 
-  // Today's cumulative totals (resets at midnight automatically)
   const todayActivities = activities.filter((a) => isToday(a.logged_at));
   const totalStepsToday = todayActivities.reduce((sum, a) => sum + a.steps, 0);
   const totalCaloriesToday = todayActivities.reduce((sum, a) => sum + a.calories, 0);
+  const currentStreak = calcStreak(activities);
+  const weeklyWorkouts = countWeeklyWorkouts(activities);
+  const consistencyScore = calcConsistencyScore(weeklyWorkouts);
+  const consistencyLabel = getConsistencyLabel(consistencyScore);
 
+  const todayStr = new Date().toISOString().split("T")[0];
+  const todaySleep = sleepLogs.find(s => s.date === todayStr);
+  const todayNutrition = nutritionLogs.find(n => n.date === todayStr);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
   const displayName = user?.first_name || user?.email?.split("@")[0] || "there";
 
   if (!user) return null;
@@ -213,11 +356,10 @@ function Dashboard() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="text-sm text-muted-foreground">Welcome back</div>
-            <h1 className="text-3xl font-semibold tracking-tight">
-              {getGreeting()}, {displayName} 👋
-            </h1>
+            <h1 className="text-3xl font-semibold tracking-tight">{getGreeting()}, {displayName} 👋</h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {/* Settings */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm"><Settings className="w-4 h-4" /></Button>
@@ -233,13 +375,40 @@ function Dashboard() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); setLogError(""); }}>
+            {/* Notifications */}
+            <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="relative">
+                  <Bell className="w-4 h-4" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full gradient-bg text-[10px] text-white flex items-center justify-center">
+                      {unreadCount}
+                    </span>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-80 max-h-96 overflow-y-auto">
+                {notifications.length === 0 ? (
+                  <div className="p-4 text-sm text-muted-foreground text-center">No notifications</div>
+                ) : (
+                  notifications.slice(0, 10).map((n) => (
+                    <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-0.5 py-3">
+                      <span className="text-sm">{n.message}</span>
+                      <span className="text-xs text-muted-foreground">{n.time}</span>
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Log Activity */}
+            <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); setLogError(""); setSelfie(null); setScreenshot(null); setVerificationResult(null); }}>
               <DialogTrigger asChild>
                 <Button size="lg" className="gradient-bg shadow-[var(--shadow-elegant)]">
                   <Plus className="w-4 h-4 mr-1" /> Log activity
                 </Button>
               </DialogTrigger>
-              <DialogContent className="glass-strong border-0">
+              <DialogContent className="glass-strong border-0 max-h-[90vh] overflow-y-auto">
                 <DialogHeader><DialogTitle>Log activity</DialogTitle></DialogHeader>
                 {logError && (
                   <div className="p-3 rounded-lg bg-red-50 border border-red-200">
@@ -251,65 +420,47 @@ function Dashboard() {
                     <div className="col-span-2">
                       <Label>Activity type</Label>
                       <Select value={activityName} onValueChange={setActivityName}>
-                        <SelectTrigger className="w-full mt-1">
-                          <SelectValue placeholder="Select activity" />
-                        </SelectTrigger>
+                        <SelectTrigger className="w-full mt-1"><SelectValue placeholder="Select activity" /></SelectTrigger>
                         <SelectContent>
-                          {ACTIVITY_TYPES.map((type) => (
-                            <SelectItem key={type} value={type}>{type}</SelectItem>
-                          ))}
+                          {ACTIVITY_TYPES.map((type) => (<SelectItem key={type} value={type}>{type}</SelectItem>))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div>
                       <Label>Duration (min)</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={duration || ""}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val !== "") setDuration(parseInt(val, 10) || 1);
-                        }}
-                        onBlur={(e) => {
-                          if (e.target.value === "") setDuration(1);
-                        }}
-                        required
-                      />
+                      <Input type="number" min={1} value={duration || ""} onChange={(e) => { if (e.target.value !== "") setDuration(parseInt(e.target.value, 10) || 1); }} onBlur={(e) => { if (e.target.value === "") setDuration(1); }} required />
                     </div>
                     <div>
                       <Label>Steps</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={steps || ""}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val !== "") setSteps(parseInt(val, 10) || 0);
-                        }}
-                        onBlur={(e) => {
-                          if (e.target.value === "") setSteps(0);
-                        }}
-                      />
+                      <Input type="number" min={0} value={steps || ""} onChange={(e) => { if (e.target.value !== "") setSteps(parseInt(e.target.value, 10) || 0); }} onBlur={(e) => { if (e.target.value === "") setSteps(0); }} />
                     </div>
                     <div className="col-span-2">
                       <Label>Calories burned</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={calories || ""}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val !== "") setCalories(parseInt(val, 10) || 0);
-                        }}
-                        onBlur={(e) => {
-                          if (e.target.value === "") setCalories(0);
-                        }}
-                      />
+                      <Input type="number" min={0} value={calories || ""} onChange={(e) => { if (e.target.value !== "") setCalories(parseInt(e.target.value, 10) || 0); }} onBlur={(e) => { if (e.target.value === "") setCalories(0); }} />
+                    </div>
+                    <div className="col-span-2">
+                      <Label>Workout selfie <span className="text-red-500">*</span></Label>
+                      <p className="text-xs text-muted-foreground mb-1">A photo of you during or after your workout</p>
+                      <Input type="file" accept="image/*" required onChange={(e) => setSelfie(e.target.files?.[0] || null)} className="cursor-pointer" />
+                      {selfie && <p className="text-xs text-green-600 mt-1">✓ {selfie.name}</p>}
+                    </div>
+                    <div className="col-span-2">
+                      <Label>Fitness app screenshot <span className="text-red-500">*</span></Label>
+                      <p className="text-xs text-muted-foreground mb-1">A screenshot from any fitness app showing your workout data</p>
+                      <Input type="file" accept="image/*" required onChange={(e) => setScreenshot(e.target.files?.[0] || null)} className="cursor-pointer" />
+                      {screenshot && <p className="text-xs text-green-600 mt-1">✓ {screenshot.name}</p>}
                     </div>
                   </div>
+                  {verificationResult && (
+                    <div className={`p-3 rounded-lg ${verificationResult.status === "verified" ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200"}`}>
+                      <p className={`text-sm font-medium ${verificationResult.status === "verified" ? "text-green-700" : "text-red-700"}`}>
+                        {verificationResult.status === "verified" ? "✓ Verified!" : "✗ Not verified"}
+                      </p>
+                      <p className={`text-xs mt-0.5 ${verificationResult.status === "verified" ? "text-green-600" : "text-red-600"}`}>{verificationResult.reason}</p>
+                    </div>
+                  )}
                   <Button type="submit" className="w-full gradient-bg" disabled={logLoading}>
-                    {logLoading ? "Saving..." : "Save activity"}
+                    {logLoading ? "Verifying photos & saving..." : "Save activity"}
                   </Button>
                 </form>
               </DialogContent>
@@ -317,13 +468,84 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* Stats - now shows today's cumulative totals, resets at midnight */}
+        {/* Stats row 1 — activity stats + weekly workouts */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <Stat icon={Footprints} label="Steps today" value={totalStepsToday.toLocaleString()} unit="steps" trend={12} color="oklch(0.6 0.22 255)" />
-          <Stat icon={Flame} label="Calories burned" value={totalCaloriesToday.toLocaleString()} unit="kcal" trend={8} color="oklch(0.62 0.22 25)" />
-          <Stat icon={Moon} label="Sleep" value="7.4" unit="hrs" trend={5} color="oklch(0.55 0.18 300)" />
-          <Stat icon={TrendingUp} label="Streak" value="23" unit="days" trend={15} color="oklch(0.7 0.16 155)" cosmeticClass={activeEffects.includes("streak_flame") ? "cosmetic-flame" : undefined} />
+          <Stat icon={Footprints} label="Steps today" value={totalStepsToday.toLocaleString()} unit="steps" color="oklch(0.6 0.22 255)" />
+          <Stat icon={Flame} label="Calories burned" value={totalCaloriesToday.toLocaleString()} unit="kcal" color="oklch(0.62 0.22 25)" />
+          <Stat icon={TrendingUp} label="Streak" value={currentStreak} unit="days" color="oklch(0.7 0.16 155)" />
+          <Stat icon={Dumbbell} label="Workouts this week" value={Math.min(weeklyWorkouts, WEEKLY_GOAL)} unit={`/ ${WEEKLY_GOAL}`} color="oklch(0.6 0.22 255)" />
         </div>
+
+        {/* Stats row 2 — sleep + nutrition (clickable to log) */}
+        <div className="grid grid-cols-2 gap-4">
+          <Stat
+            icon={Moon}
+            label="Sleep last night"
+            value={todaySleep ? todaySleep.hours : "—"}
+            unit="hrs"
+            color="oklch(0.55 0.18 300)"
+            onClick={() => setSleepDialogOpen(true)}
+          />
+          <Stat
+            icon={Utensils}
+            label="Nutrition today"
+            value={todayNutrition ? todayNutrition.calories.toLocaleString() : "—"}
+            unit="kcal"
+            color="oklch(0.75 0.18 85)"
+            onClick={() => setNutritionDialogOpen(true)}
+          />
+        </div>
+
+        {/* Sleep log dialog */}
+        <Dialog open={sleepDialogOpen} onOpenChange={setSleepDialogOpen}>
+          <DialogContent className="glass-strong border-0">
+            <DialogHeader><DialogTitle>Log sleep</DialogTitle></DialogHeader>
+            <form className="space-y-4 pt-2" onSubmit={handleLogSleep}>
+              <div>
+                <Label>Hours slept last night</Label>
+                <Input type="number" min={0} max={24} step={0.5} value={sleepHours} onChange={(e) => setSleepHours(parseFloat(e.target.value) || 0)} required />
+              </div>
+              <Button type="submit" className="w-full gradient-bg" disabled={sleepLoading}>
+                {sleepLoading ? "Saving..." : "Save sleep"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Nutrition log dialog */}
+        <Dialog open={nutritionDialogOpen} onOpenChange={setNutritionDialogOpen}>
+          <DialogContent className="glass-strong border-0">
+            <DialogHeader><DialogTitle>Log nutrition</DialogTitle></DialogHeader>
+            <form className="space-y-4 pt-2" onSubmit={handleLogNutrition}>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <Label>Meal name</Label>
+                  <Input type="text" placeholder="e.g. Breakfast, Chicken salad..." value={nutritionMeal} onChange={(e) => setNutritionMeal(e.target.value)} required />
+                </div>
+                <div>
+                  <Label>Protein (g)</Label>
+                  <Input type="number" min={0} value={nutritionProtein || ""} onChange={(e) => setNutritionProtein(parseInt(e.target.value) || 0)} onBlur={(e) => { if (e.target.value === "") setNutritionProtein(0); }} />
+                </div>
+                <div>
+                  <Label>Carbs (g)</Label>
+                  <Input type="number" min={0} value={nutritionCarbs || ""} onChange={(e) => setNutritionCarbs(parseInt(e.target.value) || 0)} onBlur={(e) => { if (e.target.value === "") setNutritionCarbs(0); }} />
+                </div>
+                <div className="col-span-2">
+                  <Label>Fats (g)</Label>
+                  <Input type="number" min={0} value={nutritionFats || ""} onChange={(e) => setNutritionFats(parseInt(e.target.value) || 0)} onBlur={(e) => { if (e.target.value === "") setNutritionFats(0); }} />
+                </div>
+                <div className="col-span-2 p-3 rounded-lg bg-muted/50">
+                  <div className="text-xs text-muted-foreground mb-1">Estimated calories</div>
+                  <div className="text-2xl font-semibold">{nutritionCalories.toLocaleString()} <span className="text-sm font-normal text-muted-foreground">kcal</span></div>
+                  <div className="text-xs text-muted-foreground mt-1">Protein×4 + Carbs×4 + Fats×9</div>
+                </div>
+              </div>
+              <Button type="submit" className="w-full gradient-bg" disabled={nutritionLoading}>
+                {nutritionLoading ? "Saving..." : "Save nutrition"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         {/* Charts */}
         <div className="grid lg:grid-cols-3 gap-4">
@@ -331,60 +553,57 @@ function Dashboard() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="font-semibold">Activity trend</h3>
-                <p className="text-xs text-muted-foreground">Last 14 logs · steps & calories</p>
+                <p className="text-xs text-muted-foreground">Your last {trendData.length} logged sessions · steps & calories</p>
               </div>
-              <Badge className="gradient-bg text-primary-foreground">+18% vs prev</Badge>
             </div>
             <div className="h-72">
-              <ResponsiveContainer>
-                <AreaChart data={trendData}>
-                  <defs>
-                    <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="oklch(0.6 0.22 255)" stopOpacity={0.5} />
-                      <stop offset="100%" stopColor="oklch(0.6 0.22 255)" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="oklch(0.62 0.22 25)" stopOpacity={0.4} />
-                      <stop offset="100%" stopColor="oklch(0.62 0.22 25)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.92 0.008 250)" vertical={false} />
-                  <XAxis dataKey="day" stroke="oklch(0.5 0.02 260)" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis stroke="oklch(0.5 0.02 260)" fontSize={11} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ background: "oklch(1 0 0 / 0.95)", border: "1px solid oklch(0.92 0.008 250)", borderRadius: 12 }} />
-                  <Area type="monotone" dataKey="steps" stroke="oklch(0.6 0.22 255)" strokeWidth={2.5} fill="url(#g1)" />
-                  <Area type="monotone" dataKey="calories" stroke="oklch(0.62 0.22 25)" strokeWidth={2.5} fill="url(#g2)" />
-                </AreaChart>
-              </ResponsiveContainer>
+              {trendData.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-sm text-muted-foreground">No activity logged yet</div>
+              ) : (
+                <ResponsiveContainer>
+                  <AreaChart data={trendData}>
+                    <defs>
+                      <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="oklch(0.6 0.22 255)" stopOpacity={0.5} />
+                        <stop offset="100%" stopColor="oklch(0.6 0.22 255)" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="oklch(0.62 0.22 25)" stopOpacity={0.4} />
+                        <stop offset="100%" stopColor="oklch(0.62 0.22 25)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.92 0.008 250)" vertical={false} />
+                    <XAxis dataKey="day" stroke="oklch(0.5 0.02 260)" fontSize={11} tickLine={false} axisLine={false} />
+                    <YAxis stroke="oklch(0.5 0.02 260)" fontSize={11} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={{ background: "oklch(1 0 0 / 0.95)", border: "1px solid oklch(0.92 0.008 250)", borderRadius: 12 }} />
+                    <Area type="monotone" dataKey="steps" stroke="oklch(0.6 0.22 255)" strokeWidth={2.5} fill="url(#g1)" />
+                    <Area type="monotone" dataKey="calories" stroke="oklch(0.62 0.22 25)" strokeWidth={2.5} fill="url(#g2)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </Card>
 
           <Card className="glass border-0 p-6">
-          <h3 className="font-semibold mb-1">Consistency score</h3>
-          <p className="text-xs text-muted-foreground mb-4">This week</p>
-          <div className="relative h-44">
-            <ResponsiveContainer>
-              <RadialBarChart innerRadius="72%" outerRadius="100%" data={[{ name: "score", value: 84, fill: "oklch(0.6 0.22 255)" }]} startAngle={90} endAngle={-270}>
-                <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                <RadialBar dataKey="value" cornerRadius={20} background={{ fill: "oklch(0.94 0.01 140)" }} />
-              </RadialBarChart>
-            </ResponsiveContainer>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <div className="text-4xl font-semibold tracking-tight tabular-nums">84<span className="text-lg text-muted-foreground font-normal">%</span></div>
-              <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground mt-1">Excellent</div>
-            </div>
-          </div>
-          <div className="flex justify-between gap-1 mt-4">
-            {consistency.map((c) => (
-              <div key={c.day} className="flex-1 text-center">
-                <div className="h-12 bg-muted rounded relative overflow-hidden">
-                  <div className="absolute bottom-0 inset-x-0 gradient-bg rounded" style={{ height: `${c.v}%` }} />
-                </div>
-                <div className="text-[10px] text-muted-foreground mt-1">{c.day[0]}</div>
+            <h3 className="font-semibold mb-1">Consistency score</h3>
+            <p className="text-xs text-muted-foreground mb-4">Based on weekly workout goal ({WEEKLY_GOAL} sessions)</p>
+            <div className="relative h-44">
+              <ResponsiveContainer>
+                <RadialBarChart innerRadius="72%" outerRadius="100%" data={[{ name: "score", value: consistencyScore, fill: "oklch(0.6 0.22 255)" }]} startAngle={90} endAngle={-270}>
+                  <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+                  <RadialBar dataKey="value" cornerRadius={20} background={{ fill: "oklch(0.94 0.01 140)" }} />
+                </RadialBarChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <div className="text-4xl font-semibold tracking-tight tabular-nums">{consistencyScore}<span className="text-lg text-muted-foreground font-normal">%</span></div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground mt-1">{consistencyLabel}</div>
               </div>
-            ))}
-          </div>
-        </Card>
+            </div>
+            <div className="mt-4">
+              <Progress value={consistencyScore} />
+              <p className="text-xs text-muted-foreground mt-2 text-center">{weeklyWorkouts} of {WEEKLY_GOAL} workouts completed this week</p>
+            </div>
+          </Card>
         </div>
 
         {/* Recent Activities */}
@@ -406,7 +625,15 @@ function Dashboard() {
                     <Footprints className="w-4 h-4 text-primary-foreground" />
                   </div>
                   <div className="flex-1 min-w-[140px]">
-                    <div className="text-sm font-medium">{log.activity}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-medium">{log.activity}</div>
+                      {log.verification_status === "verified" && (
+                        <Badge className="text-[10px] bg-green-100 text-green-700 border-0">✓ Verified</Badge>
+                      )}
+                      {log.verification_status === "rejected" && (
+                        <Badge className="text-[10px] bg-red-100 text-red-700 border-0">✗ Unverified</Badge>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                       <Clock className="w-3 h-3" /> {log.logged_at}
                     </div>
@@ -440,7 +667,7 @@ function Dashboard() {
               </div>
               <div>
                 <h3 className="font-semibold flex items-center gap-2">
-                  AI-Driven Recalibration <Badge variant="secondary">2 new</Badge>
+                  AI-Driven Recalibration <Badge variant="secondary">{adjustments.length} new</Badge>
                 </h3>
                 <p className="text-xs text-muted-foreground">Momentm AI suggests these adjustments based on your last 7 days.</p>
               </div>
@@ -473,29 +700,6 @@ function Dashboard() {
             )}
           </div>
         </Card>
-
-        {/* Goal Progress */}
-        <div className="grid md:grid-cols-3 gap-4">
-          {[
-            { label: "Weekly workouts", value: Math.min(activities.filter(a => {
-                const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-                return true;
-              }).length, 5), target: 5, color: "oklch(0.6 0.22 255)" },
-            { label: "Mindful minutes", value: 70, target: 100, color: "oklch(0.7 0.16 155)" },
-            { label: "Hydration (cups)", value: 6, target: 8, color: "oklch(0.55 0.18 300)" },
-          ].map((g) => (
-            <Card key={g.label} className="glass border-0 p-5">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-medium">{g.label}</div>
-                <Award className="w-4 h-4 text-muted-foreground" />
-              </div>
-              <div className="text-2xl font-semibold mb-3">
-                {g.value}<span className="text-sm text-muted-foreground">/{g.target}</span>
-              </div>
-              <Progress value={Math.min((g.value / g.target) * 100, 100)} />
-            </Card>
-          ))}
-        </div>
       </div>
     </AppShell>
   );

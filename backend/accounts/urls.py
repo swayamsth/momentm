@@ -36,14 +36,18 @@ urlpatterns = [
     path('loops/<int:loop_id>/leave/', views.leave_loop_view, name='leave-loop'),
     path('loops/<int:loop_id>/edit/', views.edit_loop_view, name='edit-loop'),
     path('loops/<int:loop_id>/delete/', views.delete_loop_view, name='delete-loop'),
-    # ── NEW: loop group image upload ──
     path('loops/<int:loop_id>/upload-image/', views.upload_loop_image_view, name='upload-loop-image'),
     # Notifications
     path('notifications/', views.get_notifications_view, name='notifications'),
     # Activities
-    # Activities
     path('activities/', views.get_activities_view, name='get-activities'),
     path('activities/log/', views.log_activity_view, name='log-activity'),
+    # Sleep
+    path('sleep/', views.get_sleep_view, name='get-sleep'),
+    path('sleep/log/', views.log_sleep_view, name='log-sleep'),
+    # Nutrition
+    path('nutrition/', views.get_nutrition_view, name='get-nutrition'),
+    path('nutrition/log/', views.log_nutrition_view, name='log-nutrition'),
     # Profile
     path('profile/', views.profile_view, name='profile'),
     path('profile/upload-avatar/', views.upload_avatar_view, name='upload-avatar'),
