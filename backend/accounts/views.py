@@ -903,6 +903,19 @@ def get_notifications_view(request):
             'read': False,
         })
 
+    pending_plans = WeeklyPlan.objects.filter(
+        goal__user=request.user, status='pending_review'
+    ).select_related('goal').order_by('-created_at')
+    for plan in pending_plans:
+        notifications.append({
+            'id': f'plan_{plan.id}',
+            'type': 'recalibration',
+            'message': f'Your Week {plan.week_number} recalibrated plan is ready to review.',
+            'plan_id': plan.id,
+            'time': plan.created_at.strftime('%b %d, %H:%M'),
+            'read': False,
+        })
+
     notifications.sort(key=lambda x: x['time'], reverse=True)
     return Response(notifications[:30])
 

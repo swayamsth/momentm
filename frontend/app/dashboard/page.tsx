@@ -60,6 +60,7 @@ interface Notification {
   read: boolean;
   membership_id?: number;
   loop_id?: number;
+  plan_id?: number;
 }
 
 function Stat({ icon: Icon, label, value, unit, color, onClick }: any) {
@@ -392,7 +393,14 @@ function Dashboard() {
                   <div className="p-4 text-sm text-muted-foreground text-center">No notifications</div>
                 ) : (
                   notifications.slice(0, 10).map((n) => (
-                    <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-0.5 py-3">
+                    <DropdownMenuItem
+                      key={n.id}
+                      className="flex flex-col items-start gap-0.5 py-3"
+                      onClick={n.type === 'recalibration' ? () => router.push('/plan') : undefined}
+                    >
+                      {n.type === 'recalibration' && (
+                        <span className="text-xs font-semibold text-primary uppercase tracking-wide">Plan update</span>
+                      )}
                       <span className="text-sm">{n.message}</span>
                       <span className="text-xs text-muted-foreground">{n.time}</span>
                     </DropdownMenuItem>

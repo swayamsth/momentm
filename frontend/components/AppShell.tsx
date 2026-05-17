@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Sparkles, Users, Trophy, CreditCard,
   LogOut, Activity, Menu, X, Bell, Heart, MessageCircle,
-  UserCheck, UserPlus, Check, Gift, Coins, CalendarDays,
+  UserCheck, UserPlus, Check, Gift, Coins, CalendarDays, RefreshCw,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -23,11 +23,12 @@ const nav = [
 
 interface Notification {
   id: number;
-  type: "like" | "comment" | "join" | "request_approved" | "request_denied";
+  type: "like" | "comment" | "join" | "request_approved" | "request_denied" | "recalibration" | "join_request" | "new_member";
   message: string;
   time: string;
   read: boolean;
   loop?: string;
+  plan_id?: number;
 }
 
 interface User {
@@ -63,14 +64,16 @@ function NotifIcon({ type }: { type: Notification["type"] }) {
   const base = "w-8 h-8 rounded-full flex items-center justify-center shrink-0";
   if (type === "like") return <div className={`${base} bg-red-100`}><Heart className="w-4 h-4 text-red-500" /></div>;
   if (type === "comment") return <div className={`${base} bg-blue-100`}><MessageCircle className="w-4 h-4 text-blue-500" /></div>;
-  if (type === "join") return <div className={`${base} bg-green-100`}><UserPlus className="w-4 h-4 text-green-500" /></div>;
+  if (type === "join" || type === "new_member") return <div className={`${base} bg-green-100`}><UserPlus className="w-4 h-4 text-green-500" /></div>;
   if (type === "request_approved") return <div className={`${base} bg-emerald-100`}><UserCheck className="w-4 h-4 text-emerald-500" /></div>;
+  if (type === "recalibration") return <div className={`${base} bg-purple-100`}><RefreshCw className="w-4 h-4 text-purple-500" /></div>;
   return <div className={`${base} bg-orange-100`}><X className="w-4 h-4 text-orange-500" /></div>;
 }
 
 // ─── Bell Button ──────────────────────────────────────────────────────────────
 
 function NotificationBell() {
+  const router = useRouter();
   const [notifications, setNotifications] = useState<Notification[]>(DUMMY_NOTIFICATIONS);
   const [open, setOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ bottom: 0, left: 0 });
@@ -199,7 +202,7 @@ function NotificationBell() {
                 notifications.map((n) => (
                   <button
                     key={n.id}
-                    onClick={() => { handleMarkRead(n.id); setOpen(false); }}
+                    onClick={() => { handleMarkRead(n.id); setOpen(false); if (n.type === 'recalibration') router.push('/plan'); }}
                     className={cn(
                       "w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent",
                       !n.read && "bg-primary/5"
