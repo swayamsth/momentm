@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import SignupSerializer
-from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership, Reward, RewardCode, ClaimedReward, SleepLog, NutritionLog
+from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership, Reward, RewardCode, ClaimedReward, SleepLog, NutritionLog, UserGoal, WeeklyPlan, UserFitnessProfile
 import uuid
 import os
 
@@ -1583,3 +1583,383 @@ def claimed_rewards_view(request):
         'claimed_at': c.claimed_at.strftime('%b %d, %Y'),
         'expires_at': c.expires_at.strftime('%b %d, %Y') if c.expires_at else None,
     } for c in claims])
+
+# ─── Adaptive Plan ────────────────────────────────────────────────────────────
+
+def _get_nutrition_context(user):
+    from django.utils import timezone
+    import datetime
+    from django.db.models import Avg
+    week_ago = timezone.now().date() - datetime.timedelta(days=7)
+    logs = NutritionLog.objects.filter(user=user, date__gte=week_ago)
+    if not logs.exists():
+        return None
+    avgs = logs.aggregate(
+        avg_calories=Avg('calories'),
+        avg_protein=Avg('protein'),
+        avg_carbs=Avg('carbs'),
+        avg_fats=Avg('fats'),
+    )
+    return {
+        'avg_calories': round(avgs['avg_calories'] or 0),
+        'avg_protein': round(avgs['avg_protein'] or 0),
+        'avg_carbs': round(avgs['avg_carbs'] or 0),
+        'avg_fats': round(avgs['avg_fats'] or 0),
+        'days_logged': logs.count(),
+    }
+
+
+def _get_fitness_profile_context(user):
+    try:
+        fp = user.fitness_profile
+        equipment = ', '.join(fp.equipment) if fp.equipment else 'not specified'
+        restrictions = ', '.join(fp.dietary_restrictions) if fp.dietary_restrictions else 'none'
+        return {
+            'age': fp.age,
+            'weight_kg': fp.weight_kg,
+            'fitness_level': fp.fitness_level,
+            'days_per_week': fp.days_per_week,
+            'time_per_session_min': fp.time_per_session_min,
+            'equipment': equipment,
+            'dietary_restrictions': restrictions,
+            'injuries': fp.injuries or 'none',
+        }
+    except UserFitnessProfile.DoesNotExist:
+        return None
+
+
+def _generate_plan_with_openai(goal_text, timeframe_days, week_number, activity_history=None, prev_completion=None, nutrition_data=None, fitness_profile=None):
+    from openai import OpenAI
+    import datetime
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
+    total_weeks = max(1, timeframe_days // 7)
+    day_start = (week_number - 1) * 7 + 1
+    day_end = day_start + 6
+
+    recalibration_context = ""
+    if activity_history is not None and prev_completion is not None:
+        recalibration_context = f"""
+Previous week completion: {prev_completion:.0%} of target sessions
+Activities logged last week: {', '.join(activity_history) if activity_history else 'none'}
+Adjust difficulty and targets based on this performance.
+"""
+
+    nutrition_context = ""
+    if nutrition_data:
+        nutrition_context = f"""
+User's actual nutrition last week (averaged over {nutrition_data['days_logged']} logged days):
+- Calories: {nutrition_data['avg_calories']} kcal/day
+- Protein: {nutrition_data['avg_protein']}g/day
+- Carbs: {nutrition_data['avg_carbs']}g/day
+- Fats: {nutrition_data['avg_fats']}g/day
+Give specific, data-driven nutrition feedback comparing their actual intake to what their goal requires.
+"""
+    else:
+        nutrition_context = "User has not logged nutrition yet. Give 2-3 practical nutrition tips relevant to their goal."
+
+    if fitness_profile:
+        fp = fitness_profile
+        profile_context = f"""
+User profile:
+- Age: {fp['age'] or 'not specified'}
+- Weight: {fp['weight_kg'] or 'not specified'} kg
+- Fitness level: {fp['fitness_level']}
+- Available days per week: {fp['days_per_week']}
+- Time per session: {fp['time_per_session_min']} minutes
+- Equipment available: {fp['equipment']}
+- Dietary restrictions: {fp['dietary_restrictions']}
+- Injuries/limitations: {fp['injuries']}
+Tailor exercises, intensity, duration, and nutrition strictly to this profile.
+"""
+    else:
+        profile_context = "User profile: not yet configured — use sensible beginner defaults."
+
+    prompt = f"""You are an expert fitness and performance coach. A user has set the following goal:
+
+Goal: {goal_text}
+Timeframe: {timeframe_days} days total ({total_weeks} weeks)
+Current week: Week {week_number} (Day {day_start} to Day {day_end} of the program)
+{profile_context}
+{recalibration_context}
+Nutrition data:
+{nutrition_context}
+
+Generate a detailed training plan for Week {week_number} (Day {day_start}–{day_end}) as a JSON object with exactly this structure:
+{{
+  "summary": "one sentence describing this week's focus",
+  "target_sessions": <number of training sessions this week>,
+  "days": [
+    {{
+      "day": "Day {day_start}",
+      "is_rest": false,
+      "session_type": "Session name",
+      "duration_min": <calculated total — see rules>,
+      "drills": [
+        {{"name": "Warm-up", "sets": 1, "duration_min": 5, "notes": "e.g. light jog and dynamic stretches"}},
+        {{"name": "drill name", "sets": 3, "duration_min": 3, "rest_min": 1, "notes": "optional coaching tip"}},
+        {{"name": "Cool-down", "sets": 1, "duration_min": 5, "notes": "e.g. static stretching"}}
+      ]
+    }},
+    {{
+      "day": "Day {day_start + 1}",
+      "is_rest": true,
+      "session_type": "REST",
+      "note": "Light stretching or walk recommended"
+    }}
+  ],
+  "nutrition": [
+    "specific, actionable nutrition tip based on user data"
+  ]
+}}
+
+Rules:
+- Label days exactly as "Day {day_start}", "Day {day_start + 1}" ... "Day {day_end}" — never use weekday names
+- Include all 7 days
+- Mark rest days with is_rest: true and no drills array
+- Every training day MUST start with a Warm-up drill and end with a Cool-down drill
+- Use duration_min (integer minutes) and rest_min (integer minutes) for all drills — no string durations
+- Calculate duration_min for the session as: sum of (sets × duration_min) + sum of ((sets - 1) × rest_min) for all drills. Set this as the session's duration_min field
+- Be specific: named drills, sets, durations, rest periods, coaching notes
+- Nutrition: 2-3 tips — if user has logged nutrition data, compare actual vs recommended and give specific numbers
+- Progress difficulty for week {week_number} of {total_weeks} total
+- Respond with ONLY the JSON object, no markdown, no extra text"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        temperature=0.4,
+        max_tokens=2500,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    import json
+    raw = response.choices[0].message.content.strip()
+    return json.loads(raw)
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def plan_setup_view(request):
+    from django.utils import timezone
+    import datetime
+
+    if request.method == 'GET':
+        try:
+            goal = request.user.goal
+            current_plan = goal.weekly_plans.filter(status__in=['active', 'pending_review']).first()
+            past_plans = goal.weekly_plans.filter(status__in=['accepted', 'active', 'denied']).order_by('-week_number')[:5]
+            return Response({
+                'has_goal': True,
+                'goal': {
+                    'id': goal.id,
+                    'goal_text': goal.goal_text,
+                    'timeframe_days': goal.timeframe_days,
+                    'start_date': goal.start_date.isoformat(),
+                    'end_date': goal.end_date.isoformat(),
+                    'days_remaining': max(0, (goal.end_date - timezone.now().date()).days),
+                },
+                'current_plan': _serialize_plan(current_plan) if current_plan else None,
+                'past_plans': [_serialize_plan(p) for p in past_plans],
+                'is_premium': request.user.userprofile.is_premium_active,
+            })
+        except UserGoal.DoesNotExist:
+            return Response({'has_goal': False})
+
+    # POST — create or reset goal
+    goal_text = request.data.get('goal_text', '').strip()
+    timeframe_days = request.data.get('timeframe_days')
+    if not goal_text or not timeframe_days:
+        return Response({'error': 'goal_text and timeframe_days are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        timeframe_days = int(timeframe_days)
+        if timeframe_days < 7 or timeframe_days > 365:
+            return Response({'error': 'Timeframe must be between 7 and 365 days.'}, status=status.HTTP_400_BAD_REQUEST)
+    except (ValueError, TypeError):
+        return Response({'error': 'Invalid timeframe.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    UserGoal.objects.filter(user=request.user).delete()
+
+    end_date = timezone.now().date() + datetime.timedelta(days=timeframe_days)
+    goal = UserGoal.objects.create(
+        user=request.user,
+        goal_text=goal_text,
+        timeframe_days=timeframe_days,
+        end_date=end_date,
+    )
+
+    nutrition_data = _get_nutrition_context(request.user)
+    fitness_profile = _get_fitness_profile_context(request.user)
+
+    try:
+        plan_data = _generate_plan_with_openai(
+            goal_text, timeframe_days, week_number=1,
+            nutrition_data=nutrition_data,
+            fitness_profile=fitness_profile,
+        )
+    except Exception as e:
+        goal.delete()
+        return Response({'error': f'Failed to generate plan: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    WeeklyPlan.objects.create(
+        goal=goal,
+        week_number=1,
+        week_start=timezone.now().date(),
+        plan_data=plan_data,
+        status='active',
+    )
+
+    return Response({
+        'has_goal': True,
+        'goal': {
+            'id': goal.id,
+            'goal_text': goal.goal_text,
+            'timeframe_days': goal.timeframe_days,
+            'start_date': goal.start_date.isoformat(),
+            'end_date': goal.end_date.isoformat(),
+            'days_remaining': timeframe_days,
+        },
+        'current_plan': _serialize_plan(goal.weekly_plans.first()),
+        'past_plans': [],
+        'is_premium': request.user.userprofile.is_premium_active,
+    }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def plan_respond_view(request):
+    action = request.data.get('action')
+    if action not in ('accept', 'deny'):
+        return Response({'error': 'action must be accept or deny.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        goal = request.user.goal
+    except UserGoal.DoesNotExist:
+        return Response({'error': 'No active goal.'}, status=status.HTTP_404_NOT_FOUND)
+
+    plan = goal.weekly_plans.filter(status='pending_review').first()
+    if not plan:
+        return Response({'error': 'No pending recalibration to review.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if action == 'accept':
+        goal.weekly_plans.filter(status='active').update(status='accepted')
+        plan.status = 'active'
+    else:
+        plan.status = 'denied'
+    plan.save()
+
+    return Response({'status': plan.status})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def plan_recalibrate_view(request):
+    from django.utils import timezone
+    import datetime
+
+    try:
+        goal = request.user.goal
+    except UserGoal.DoesNotExist:
+        return Response({'error': 'No active goal.'}, status=status.HTTP_404_NOT_FOUND)
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.is_premium_active:
+        return Response({'error': 'Recalibration is a Premium feature.'}, status=status.HTTP_403_FORBIDDEN)
+
+    if goal.weekly_plans.filter(status='pending_review').exists():
+        return Response({'error': 'A recalibration is already pending your review.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    week_ago = timezone.now().date() - datetime.timedelta(days=7)
+    recent_logs = ActivityLog.objects.filter(user=request.user, logged_at__date__gte=week_ago)
+    activity_history = list(recent_logs.values_list('activity', flat=True))
+
+    current_plan = goal.weekly_plans.filter(status='active').first()
+    target_sessions = current_plan.plan_data.get('target_sessions', 4) if current_plan else 4
+    prev_completion = len(activity_history) / target_sessions if target_sessions else 0
+    next_week = (current_plan.week_number + 1) if current_plan else 2
+
+    nutrition_data = _get_nutrition_context(request.user)
+    fitness_profile = _get_fitness_profile_context(request.user)
+
+    try:
+        plan_data = _generate_plan_with_openai(
+            goal.goal_text,
+            goal.timeframe_days,
+            week_number=next_week,
+            activity_history=activity_history,
+            prev_completion=prev_completion,
+            nutrition_data=nutrition_data,
+            fitness_profile=fitness_profile,
+        )
+    except Exception as e:
+        return Response({'error': f'Failed to generate recalibration: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    note = f"Last week you completed approximately {prev_completion:.0%} of your target sessions."
+    if prev_completion >= 1.0:
+        note += " Great work — intensity has been increased."
+    elif prev_completion >= 0.5:
+        note += " Solid effort — targets adjusted to keep you on track."
+    else:
+        note += " Targets have been adjusted to help you build momentum."
+
+    WeeklyPlan.objects.create(
+        goal=goal,
+        week_number=next_week,
+        week_start=timezone.now().date(),
+        plan_data=plan_data,
+        status='pending_review',
+        is_recalibration=True,
+        recalibration_note=note,
+    )
+
+    return Response({'message': 'Recalibration generated. Review it on your plan page.'})
+
+
+def _serialize_plan(plan):
+    return {
+        'id': plan.id,
+        'week_number': plan.week_number,
+        'week_start': plan.week_start.isoformat(),
+        'status': plan.status,
+        'is_recalibration': plan.is_recalibration,
+        'recalibration_note': plan.recalibration_note,
+        'plan_data': plan.plan_data,
+    }
+
+
+# ─── Fitness Profile ──────────────────────────────────────────────────────────
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def fitness_profile_view(request):
+    profile, _ = UserFitnessProfile.objects.get_or_create(user=request.user)
+
+    if request.method == 'PATCH':
+        data = request.data
+        if 'age' in data:
+            profile.age = int(data['age']) if data['age'] else None
+        if 'weight_kg' in data:
+            profile.weight_kg = float(data['weight_kg']) if data['weight_kg'] else None
+        if 'fitness_level' in data:
+            profile.fitness_level = data['fitness_level']
+        if 'days_per_week' in data:
+            profile.days_per_week = int(data['days_per_week'])
+        if 'time_per_session_min' in data:
+            profile.time_per_session_min = int(data['time_per_session_min'])
+        if 'equipment' in data:
+            profile.equipment = data['equipment']
+        if 'dietary_restrictions' in data:
+            profile.dietary_restrictions = data['dietary_restrictions']
+        if 'injuries' in data:
+            profile.injuries = data['injuries']
+        profile.save()
+
+    return Response({
+        'age': profile.age,
+        'weight_kg': profile.weight_kg,
+        'fitness_level': profile.fitness_level,
+        'days_per_week': profile.days_per_week,
+        'time_per_session_min': profile.time_per_session_min,
+        'equipment': profile.equipment,
+        'dietary_restrictions': profile.dietary_restrictions,
+        'injuries': profile.injuries,
+    })

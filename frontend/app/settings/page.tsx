@@ -1,108 +1,323 @@
 "use client";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Activity, ArrowLeft } from "lucide-react";
+import { useState, useEffect } from "react";
+import { AppShell } from "@/components/AppShell";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Check } from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+type FitnessProfile = {
+  age: number | null;
+  weight_kg: number | null;
+  fitness_level: "beginner" | "intermediate" | "advanced";
+  days_per_week: number;
+  time_per_session_min: number;
+  equipment: string[];
+  dietary_restrictions: string[];
+  injuries: string;
+};
+
+const EQUIPMENT_OPTIONS = ["No equipment", "Dumbbells", "Barbell", "Resistance bands", "Full gym", "Boxing bag", "Pull-up bar"];
+const DIET_OPTIONS = ["None", "Vegan", "Vegetarian", "Gluten free", "Dairy free", "Halal", "Kosher"];
+const SESSION_TIMES = [20, 30, 45, 60, 90];
+const DAYS_OPTIONS = [2, 3, 4, 5, 6];
 
 export default function SettingsPage() {
-  const router = useRouter();
-  const [user, setUser] = useState<{ email: string; first_name: string; two_factor_enabled?: boolean } | null>(null);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [toggling2FA, setToggling2FA] = useState(false);
+  const [fitness, setFitness] = useState<FitnessProfile>({
+    age: null,
+    weight_kg: null,
+    fitness_level: "beginner",
+    days_per_week: 4,
+    time_per_session_min: 45,
+    equipment: [],
+    dietary_restrictions: [],
+    injuries: "",
+  });
+  const [savingFitness, setSavingFitness] = useState(false);
+  const [fitnessLoaded, setFitnessLoaded] = useState(false);
+
+  const token = () => localStorage.getItem("access_token") ?? "";
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
-    const stored = localStorage.getItem("user");
-    if (!token || !stored) { router.push("/"); return; }
-    setUser(JSON.parse(stored));
-    fetch("http://127.0.0.1:8000/api/dashboard/", { headers: { Authorization: `Bearer ${token}` } })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.user) {
-          setTwoFactorEnabled(data.user.two_factor_enabled);
-          const updatedUser = { ...JSON.parse(stored), two_factor_enabled: data.user.two_factor_enabled };
-          localStorage.setItem("user", JSON.stringify(updatedUser));
-        }
-      })
-      .catch(() => console.log("Could not fetch 2FA status"));
+    fetch("http://127.0.0.1:8000/api/dashboard/", {
+      headers: { Authorization: `Bearer ${token()}` },
+    })
+      .then(r => r.json())
+      .then(d => { if (d.user) setTwoFactorEnabled(d.user.two_factor_enabled); })
+      .catch(() => {});
+
+    fetch("http://127.0.0.1:8000/api/fitness-profile/", {
+      headers: { Authorization: `Bearer ${token()}` },
+    })
+      .then(r => r.json())
+      .then(d => { setFitness(d); setFitnessLoaded(true); })
+      .catch(() => setFitnessLoaded(true));
   }, []);
 
   const handleToggle2FA = async () => {
-    setLoading(true);
-    setMessage("");
+    setToggling2FA(true);
     try {
-      const token = localStorage.getItem("access_token");
       const res = await fetch("http://127.0.0.1:8000/api/toggle-2fa/", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
       });
-      const data = await res.json();
+      const d = await res.json();
       if (res.ok) {
-        setTwoFactorEnabled(data.two_factor_enabled);
-        const stored = localStorage.getItem("user");
-        if (stored) {
-          localStorage.setItem("user", JSON.stringify({ ...JSON.parse(stored), two_factor_enabled: data.two_factor_enabled }));
-        }
-        setMessage(data.message);
+        setTwoFactorEnabled(d.two_factor_enabled);
+        toast.success(d.message);
       } else {
-        setMessage("Failed to update 2FA settings.");
+        toast.error("Failed to update 2FA.");
       }
     } catch {
-      setMessage("Cannot connect to server.");
+      toast.error("Cannot connect to server.");
     } finally {
-      setLoading(false);
+      setToggling2FA(false);
     }
   };
 
-  if (!user) return null;
+  const toggleItem = (field: "equipment" | "dietary_restrictions", value: string) => {
+    setFitness(prev => {
+      const current = prev[field];
+      return {
+        ...prev,
+        [field]: current.includes(value) ? current.filter(v => v !== value) : [...current, value],
+      };
+    });
+  };
+
+  const handleSaveFitness = async () => {
+    setSavingFitness(true);
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/fitness-profile/", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
+        body: JSON.stringify(fitness),
+      });
+      if (res.ok) toast.success("Fitness profile saved.");
+      else toast.error("Failed to save.");
+    } catch {
+      toast.error("Something went wrong.");
+    } finally {
+      setSavingFitness(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute -top-40 -left-40 w-[500px] h-[500px] rounded-full opacity-30 blur-3xl gradient-bg" />
-      <div className="absolute -bottom-40 -right-40 w-[500px] h-[500px] rounded-full opacity-20 blur-3xl" style={{ background: "oklch(0.65 0.2 300)" }} />
-      <div className="relative glass-strong rounded-3xl p-8 lg:p-10 w-full max-w-md">
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl gradient-bg flex items-center justify-center">
-              <Activity className="w-4 h-4 text-primary-foreground" strokeWidth={2.5} />
-            </div>
-            <span className="text-lg font-semibold tracking-tight">Momentm</span>
+    <AppShell>
+      <div className="max-w-2xl space-y-8">
+
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+          <p className="text-sm text-muted-foreground mt-1">Manage your account and fitness profile.</p>
+        </div>
+
+        {/* ── Fitness Profile ── */}
+        <section className="space-y-4">
+          <div>
+            <h2 className="text-base font-semibold">Fitness Profile</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Used to personalise your training plan and nutrition suggestions.</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard")}>
-            <ArrowLeft className="w-4 h-4 mr-1" /> Back
-          </Button>
-        </div>
-        <h2 className="text-2xl font-semibold mb-6">Account settings</h2>
-        <div className="glass rounded-xl p-4 mb-6">
-          <p className="text-xs text-muted-foreground mb-1">Email address</p>
-          <p className="text-sm font-medium">{user.email}</p>
-        </div>
-        <div className="glass rounded-xl p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Two-factor authentication</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {twoFactorEnabled ? "A code will be sent to your email on every login" : "Add an extra layer of security"}
-              </p>
-              <div className="flex items-center gap-2 mt-2">
-                <span className={`inline-block w-2 h-2 rounded-full ${twoFactorEnabled ? "bg-green-500" : "bg-gray-300"}`} />
-                <p className={`text-xs ${twoFactorEnabled ? "text-green-600" : "text-muted-foreground"}`}>
-                  {twoFactorEnabled ? "2FA is currently ON" : "2FA is currently OFF"}
-                </p>
+
+          <Card className="glass-strong border-0 p-6 space-y-6">
+
+            {/* Age + Weight */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs">Age</Label>
+                <Input
+                  className="mt-1.5"
+                  type="number"
+                  min={10} max={100}
+                  placeholder="25"
+                  value={fitness.age ?? ""}
+                  onChange={e => setFitness(p => ({ ...p, age: e.target.value ? parseInt(e.target.value) : null }))}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Body weight (kg)</Label>
+                <Input
+                  className="mt-1.5"
+                  type="number"
+                  min={30} max={300}
+                  step={0.5}
+                  placeholder="75"
+                  value={fitness.weight_kg ?? ""}
+                  onChange={e => setFitness(p => ({ ...p, weight_kg: e.target.value ? parseFloat(e.target.value) : null }))}
+                />
               </div>
             </div>
-            <button
-              onClick={handleToggle2FA}
-              disabled={loading}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${twoFactorEnabled ? "bg-primary" : "bg-muted-foreground/30"}`}
+
+            {/* Fitness level */}
+            <div>
+              <Label className="text-xs">Fitness level</Label>
+              <div className="flex gap-2 mt-1.5">
+                {(["beginner", "intermediate", "advanced"] as const).map(level => (
+                  <button
+                    key={level}
+                    onClick={() => setFitness(p => ({ ...p, fitness_level: level }))}
+                    className={cn(
+                      "flex-1 py-2 rounded-xl text-sm font-medium border transition-colors capitalize",
+                      fitness.fitness_level === level
+                        ? "gradient-bg text-primary-foreground border-transparent"
+                        : "border-border text-muted-foreground hover:bg-accent"
+                    )}
+                  >
+                    {level}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Days per week */}
+            <div>
+              <Label className="text-xs">Days available per week</Label>
+              <div className="flex gap-2 mt-1.5">
+                {DAYS_OPTIONS.map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setFitness(p => ({ ...p, days_per_week: d }))}
+                    className={cn(
+                      "w-10 h-10 rounded-xl text-sm font-medium border transition-colors",
+                      fitness.days_per_week === d
+                        ? "gradient-bg text-primary-foreground border-transparent"
+                        : "border-border text-muted-foreground hover:bg-accent"
+                    )}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Time per session */}
+            <div>
+              <Label className="text-xs">Time per session</Label>
+              <div className="flex gap-2 mt-1.5 flex-wrap">
+                {SESSION_TIMES.map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setFitness(p => ({ ...p, time_per_session_min: t }))}
+                    className={cn(
+                      "px-3 h-10 rounded-xl text-sm font-medium border transition-colors",
+                      fitness.time_per_session_min === t
+                        ? "gradient-bg text-primary-foreground border-transparent"
+                        : "border-border text-muted-foreground hover:bg-accent"
+                    )}
+                  >
+                    {t} min
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Equipment */}
+            <div>
+              <Label className="text-xs">Equipment available</Label>
+              <div className="flex flex-wrap gap-2 mt-1.5">
+                {EQUIPMENT_OPTIONS.map(e => {
+                  const selected = fitness.equipment.includes(e);
+                  return (
+                    <button
+                      key={e}
+                      onClick={() => toggleItem("equipment", e)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-xl text-sm border transition-colors flex items-center gap-1.5",
+                        selected
+                          ? "gradient-bg text-primary-foreground border-transparent"
+                          : "border-border text-muted-foreground hover:bg-accent"
+                      )}
+                    >
+                      {selected && <Check className="w-3 h-3" />}
+                      {e}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Dietary restrictions */}
+            <div>
+              <Label className="text-xs">Dietary restrictions</Label>
+              <div className="flex flex-wrap gap-2 mt-1.5">
+                {DIET_OPTIONS.map(d => {
+                  const selected = fitness.dietary_restrictions.includes(d);
+                  return (
+                    <button
+                      key={d}
+                      onClick={() => toggleItem("dietary_restrictions", d)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-xl text-sm border transition-colors flex items-center gap-1.5",
+                        selected
+                          ? "gradient-bg text-primary-foreground border-transparent"
+                          : "border-border text-muted-foreground hover:bg-accent"
+                      )}
+                    >
+                      {selected && <Check className="w-3 h-3" />}
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Injuries */}
+            <div>
+              <Label className="text-xs">Injuries or limitations <span className="text-muted-foreground">(optional)</span></Label>
+              <Textarea
+                className="mt-1.5 resize-none text-sm"
+                rows={2}
+                placeholder="e.g. bad left knee, shoulder impingement..."
+                value={fitness.injuries}
+                onChange={e => setFitness(p => ({ ...p, injuries: e.target.value }))}
+                maxLength={300}
+              />
+            </div>
+
+            <Button
+              className="gradient-bg w-full"
+              onClick={handleSaveFitness}
+              disabled={savingFitness || !fitnessLoaded}
             >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${twoFactorEnabled ? "translate-x-6" : "translate-x-1"}`} />
-            </button>
-          </div>
-          {message && <p className="text-xs text-primary mt-3">{message}</p>}
-        </div>
+              {savingFitness ? "Saving..." : "Save fitness profile"}
+            </Button>
+          </Card>
+        </section>
+
+        {/* ── Account ── */}
+        <section className="space-y-4">
+          <h2 className="text-base font-semibold">Account</h2>
+          <Card className="glass-strong border-0 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Two-factor authentication</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {twoFactorEnabled ? "A code is sent to your email on every login" : "Add an extra layer of security to your account"}
+                </p>
+              </div>
+              <button
+                onClick={handleToggle2FA}
+                disabled={toggling2FA}
+                className={cn(
+                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                  twoFactorEnabled ? "bg-primary" : "bg-muted-foreground/30"
+                )}
+              >
+                <span className={cn(
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  twoFactorEnabled ? "translate-x-6" : "translate-x-1"
+                )} />
+              </button>
+            </div>
+          </Card>
+        </section>
+
       </div>
-    </div>
+    </AppShell>
   );
 }

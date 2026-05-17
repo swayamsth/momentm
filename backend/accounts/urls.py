@@ -56,6 +56,12 @@ urlpatterns = [
     # Leaderboard
     path('leaderboard/', views.leaderboard_view, name='leaderboard'),
     path('loops/<int:loop_id>/leaderboard/', views.loop_leaderboard_view, name='loop-leaderboard'),
+    # Fitness profile
+    path('fitness-profile/', views.fitness_profile_view, name='fitness-profile'),
+    # Plan
+    path('plan/', views.plan_setup_view, name='plan'),
+    path('plan/respond/', views.plan_respond_view, name='plan-respond'),
+    path('plan/recalibrate/', views.plan_recalibrate_view, name='plan-recalibrate'),
     # Rewards
     path('rewards/', views.rewards_view, name='rewards'),
     path('rewards/<int:reward_id>/claim/', views.claim_reward_view, name='claim-reward'),
