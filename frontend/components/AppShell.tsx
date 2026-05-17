@@ -90,7 +90,14 @@ function NotificationBell() {
         });
         if (!res.ok) return;
         const data = await res.json();
-        if (Array.isArray(data)) setNotifications(data);
+        if (Array.isArray(data)) {
+          try {
+            const seen: string[] = JSON.parse(localStorage.getItem('seen_notif_ids') || '[]');
+            setNotifications(data.map((n: Notification) => ({ ...n, read: seen.includes(String(n.id)) })));
+          } catch {
+            setNotifications(data);
+          }
+        }
       } catch { /* keep dummy data */ }
     };
     fetchNotifications();
@@ -118,6 +125,14 @@ function NotificationBell() {
         bottom: window.innerHeight - rect.top + 8,
         left: Math.max(8, rect.left),
       });
+    }
+    if (!open) {
+      try {
+        const ids = notifications.map(n => String(n.id));
+        const existing: string[] = JSON.parse(localStorage.getItem('seen_notif_ids') || '[]');
+        localStorage.setItem('seen_notif_ids', JSON.stringify([...new Set([...existing, ...ids])]));
+      } catch {}
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     }
     setOpen((prev) => !prev);
   };

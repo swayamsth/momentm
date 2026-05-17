@@ -1363,16 +1363,20 @@ def log_nutrition_view(request):
     else:
         date = timezone.now().date()
 
-    log, created = NutritionLog.objects.update_or_create(
+    from django.db.models import F
+    log, created = NutritionLog.objects.get_or_create(
         user=request.user,
         date=date,
-        defaults={
-            'calories': calories,
-            'protein': protein,
-            'carbs': carbs,
-            'fats': fats,
-        },
+        defaults={'calories': calories, 'protein': protein, 'carbs': carbs, 'fats': fats},
     )
+    if not created:
+        NutritionLog.objects.filter(id=log.id).update(
+            calories=F('calories') + calories,
+            protein=F('protein') + protein,
+            carbs=F('carbs') + carbs,
+            fats=F('fats') + fats,
+        )
+        log.refresh_from_db()
 
     return Response({
         'id': log.id,
