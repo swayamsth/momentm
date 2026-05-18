@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Footprints, Flame, Moon, TrendingUp, Plus, Settings, LogOut, Clock, Dumbbell, Bell, Utensils, Salad,
+  Footprints, Flame, Moon, TrendingUp, Sparkles, Plus, Check, X, Award, Settings, LogOut, Clock, Dumbbell, Star, Bell, Utensils,
 } from "lucide-react";
 import {
   AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -24,6 +24,15 @@ import { cn } from "@/lib/utils";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 
 const ACTIVITY_TYPES = ["Run", "Swim", "Cycle", "Strength", "Skipping"];
+const WEEKLY_GOAL = 5;
+
+const ACTIVITY_METRICS: Record<string, { label: string; placeholder: string; unit: string }> = {
+  Run:      { label: "Steps",       placeholder: "e.g. 8000",  unit: "steps" },
+  Swim:     { label: "Laps",        placeholder: "e.g. 20",    unit: "laps"  },
+  Cycle:    { label: "Distance",    placeholder: "e.g. 15",    unit: "km"    },
+  Strength: { label: "Sets",        placeholder: "e.g. 12",    unit: "sets"  },
+  Skipping: { label: "Jump count",  placeholder: "e.g. 500",   unit: "jumps" },
+};
 
 interface ActivityLog {
   id: number;
@@ -59,7 +68,6 @@ interface Notification {
   read: boolean;
   membership_id?: number;
   loop_id?: number;
-  plan_id?: number;
 }
 
 function Stat({ icon: Icon, label, value, unit, color, onClick }: any) {
@@ -126,8 +134,8 @@ function countWeeklyWorkouts(logs: ActivityLog[]): number {
   }).length;
 }
 
-function calcConsistencyScore(weeklyWorkouts: number, goal: number): number {
-  return Math.min(Math.round((weeklyWorkouts / Math.max(goal, 1)) * 100), 100);
+function calcConsistencyScore(weeklyWorkouts: number): number {
+  return Math.min(Math.round((weeklyWorkouts / WEEKLY_GOAL) * 100), 100);
 }
 
 function getConsistencyLabel(score: number): string {
@@ -176,7 +184,10 @@ function Dashboard() {
   // Auto-calculate calories from macros
   const nutritionCalories = nutritionProtein * 4 + nutritionCarbs * 4 + nutritionFats * 9;
 
-  const [weeklyGoal, setWeeklyGoal] = useState(4);
+  const [adjustments, setAdjustments] = useState([
+    { id: 1, metric: "Daily steps", from: "8,000", to: "9,500", reason: "You've exceeded your goal 6 of 7 days." },
+    { id: 2, metric: "Sleep window", from: "7h", to: "7h 30m", reason: "Recovery scores trending down on low-sleep days." },
+  ]);
 
   const buildTrend = (data: ActivityLog[]) => {
     if (data.length === 0) return [];
@@ -189,12 +200,11 @@ function Dashboard() {
 
   const fetchAll = async (token: string) => {
     try {
-      const [actRes, sleepRes, nutritionRes, notifRes, planRes] = await Promise.all([
+      const [actRes, sleepRes, nutritionRes, notifRes] = await Promise.all([
         fetch(`${API}/activities/`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API}/sleep/`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API}/nutrition/`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API}/notifications/`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API}/plan/`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (actRes.ok) {
         const data: ActivityLog[] = await actRes.json();
@@ -203,18 +213,7 @@ function Dashboard() {
       }
       if (sleepRes.ok) setSleepLogs(await sleepRes.json());
       if (nutritionRes.ok) setNutritionLogs(await nutritionRes.json());
-      if (notifRes.ok) {
-        const data = await notifRes.json();
-        try {
-          const seen: string[] = JSON.parse(localStorage.getItem('seen_notif_ids') || '[]');
-          setNotifications(data.map((n: Notification) => ({ ...n, read: seen.includes(String(n.id)) })));
-        } catch { setNotifications(data); }
-      }
-      if (planRes.ok) {
-        const data = await planRes.json();
-        const target = data.current_plan?.plan_data?.target_sessions;
-        if (target) setWeeklyGoal(target);
-      }
+      if (notifRes.ok) setNotifications(await notifRes.json());
     } catch {
       console.log("Could not fetch data");
     }
@@ -244,7 +243,6 @@ function Dashboard() {
     setVerificationResult(null);
     const token = localStorage.getItem("access_token");
     if (!token) return;
-    if (!selfie) { setLogError("Please upload a selfie photo."); setLogLoading(false); return; }
     if (!screenshot) { setLogError("Please upload a screenshot of your fitness app."); setLogLoading(false); return; }
     try {
       const formData = new FormData();
@@ -252,7 +250,6 @@ function Dashboard() {
       formData.append("duration", String(duration));
       formData.append("steps", String(steps));
       formData.append("calories", String(calories));
-      formData.append("selfie", selfie);
       formData.append("screenshot", screenshot);
       const res = await fetch(`${API}/activities/log/`, {
         method: "POST",
@@ -268,7 +265,7 @@ function Dashboard() {
         if (data.verification_status === "verified") {
           setTimeout(() => { setDialogOpen(false); setVerificationResult(null); }, 2000);
         }
-        setActivityName("Run"); setDuration(45); setSteps(0); setCalories(0); setSelfie(null); setScreenshot(null);
+        setActivityName("Run"); setDuration(45); setSteps(0); setCalories(0); setScreenshot(null);
       } else {
         setLogError(data.error || "Failed to log activity.");
       }
@@ -346,7 +343,7 @@ function Dashboard() {
   const totalCaloriesToday = todayActivities.reduce((sum, a) => sum + a.calories, 0);
   const currentStreak = calcStreak(activities);
   const weeklyWorkouts = countWeeklyWorkouts(activities);
-  const consistencyScore = calcConsistencyScore(weeklyWorkouts, weeklyGoal);
+  const consistencyScore = calcConsistencyScore(weeklyWorkouts);
   const consistencyLabel = getConsistencyLabel(consistencyScore);
 
   const todayStr = new Date().toISOString().split("T")[0];
@@ -385,17 +382,7 @@ function Dashboard() {
             </DropdownMenu>
 
             {/* Notifications */}
-            <DropdownMenu open={notifOpen} onOpenChange={(open) => {
-              setNotifOpen(open);
-              if (open && notifications.length > 0) {
-                try {
-                  const ids = notifications.map(n => String(n.id));
-                  const existing: string[] = JSON.parse(localStorage.getItem('seen_notif_ids') || '[]');
-                  localStorage.setItem('seen_notif_ids', JSON.stringify([...new Set([...existing, ...ids])]));
-                } catch {}
-                setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-              }
-            }}>
+            <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="relative">
                   <Bell className="w-4 h-4" />
@@ -411,14 +398,7 @@ function Dashboard() {
                   <div className="p-4 text-sm text-muted-foreground text-center">No notifications</div>
                 ) : (
                   notifications.slice(0, 10).map((n) => (
-                    <DropdownMenuItem
-                      key={n.id}
-                      className="flex flex-col items-start gap-0.5 py-3"
-                      onClick={n.type === 'recalibration' ? () => router.push('/plan') : undefined}
-                    >
-                      {n.type === 'recalibration' && (
-                        <span className="text-xs font-semibold text-primary uppercase tracking-wide">Plan update</span>
-                      )}
+                    <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-0.5 py-3">
                       <span className="text-sm">{n.message}</span>
                       <span className="text-xs text-muted-foreground">{n.time}</span>
                     </DropdownMenuItem>
@@ -428,7 +408,7 @@ function Dashboard() {
             </DropdownMenu>
 
             {/* Log Activity */}
-            <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); setLogError(""); setSelfie(null); setScreenshot(null); setVerificationResult(null); }}>
+            <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); setLogError(""); setScreenshot(null); setVerificationResult(null); }}>
               <DialogTrigger asChild>
                 <Button size="lg" className="gradient-bg shadow-[var(--shadow-elegant)]">
                   <Plus className="w-4 h-4 mr-1" /> Log activity
@@ -457,18 +437,20 @@ function Dashboard() {
                       <Input type="number" min={1} value={duration || ""} onChange={(e) => { if (e.target.value !== "") setDuration(parseInt(e.target.value, 10) || 1); }} onBlur={(e) => { if (e.target.value === "") setDuration(1); }} required />
                     </div>
                     <div>
-                      <Label>Steps</Label>
-                      <Input type="number" min={0} value={steps || ""} onChange={(e) => { if (e.target.value !== "") setSteps(parseInt(e.target.value, 10) || 0); }} onBlur={(e) => { if (e.target.value === "") setSteps(0); }} />
+                      <Label>{ACTIVITY_METRICS[activityName]?.label ?? "Steps"}</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        placeholder={ACTIVITY_METRICS[activityName]?.placeholder ?? "0"}
+                        value={steps || ""}
+                        onChange={(e) => { if (e.target.value !== "") setSteps(parseInt(e.target.value, 10) || 0); }}
+                        onBlur={(e) => { if (e.target.value === "") setSteps(0); }}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">{ACTIVITY_METRICS[activityName]?.unit}</p>
                     </div>
                     <div className="col-span-2">
                       <Label>Calories burned</Label>
                       <Input type="number" min={0} value={calories || ""} onChange={(e) => { if (e.target.value !== "") setCalories(parseInt(e.target.value, 10) || 0); }} onBlur={(e) => { if (e.target.value === "") setCalories(0); }} />
-                    </div>
-                    <div className="col-span-2">
-                      <Label>Workout selfie <span className="text-red-500">*</span></Label>
-                      <p className="text-xs text-muted-foreground mb-1">A photo of you during or after your workout</p>
-                      <Input type="file" accept="image/*" required onChange={(e) => setSelfie(e.target.files?.[0] || null)} className="cursor-pointer" />
-                      {selfie && <p className="text-xs text-green-600 mt-1">✓ {selfie.name}</p>}
                     </div>
                     <div className="col-span-2">
                       <Label>Fitness app screenshot <span className="text-red-500">*</span></Label>
@@ -499,7 +481,7 @@ function Dashboard() {
           <Stat icon={Footprints} label="Steps today" value={totalStepsToday.toLocaleString()} unit="steps" color="oklch(0.6 0.22 255)" />
           <Stat icon={Flame} label="Calories burned" value={totalCaloriesToday.toLocaleString()} unit="kcal" color="oklch(0.62 0.22 25)" />
           <Stat icon={TrendingUp} label="Streak" value={currentStreak} unit="days" color="oklch(0.7 0.16 155)" />
-          <Stat icon={Dumbbell} label="Workouts this week" value={Math.min(weeklyWorkouts, weeklyGoal)} unit={`/ ${weeklyGoal}`} color="oklch(0.6 0.22 255)" />
+          <Stat icon={Dumbbell} label="Workouts this week" value={Math.min(weeklyWorkouts, WEEKLY_GOAL)} unit={`/ ${WEEKLY_GOAL}`} color="oklch(0.6 0.22 255)" />
         </div>
 
         {/* Stats row 2 — sleep + nutrition (clickable to log) */}
@@ -612,7 +594,7 @@ function Dashboard() {
 
           <Card className="glass border-0 p-6">
             <h3 className="font-semibold mb-1">Consistency score</h3>
-            <p className="text-xs text-muted-foreground mb-4">Based on your plan target ({weeklyGoal} sessions)</p>
+            <p className="text-xs text-muted-foreground mb-4">Based on weekly workout goal ({WEEKLY_GOAL} sessions)</p>
             <div className="relative h-44">
               <ResponsiveContainer>
                 <RadialBarChart innerRadius="72%" outerRadius="100%" data={[{ name: "score", value: consistencyScore, fill: "oklch(0.6 0.22 255)" }]} startAngle={90} endAngle={-270}>
@@ -627,7 +609,7 @@ function Dashboard() {
             </div>
             <div className="mt-4">
               <Progress value={consistencyScore} />
-              <p className="text-xs text-muted-foreground mt-2 text-center">{weeklyWorkouts} of {weeklyGoal} workouts completed this week</p>
+              <p className="text-xs text-muted-foreground mt-2 text-center">{weeklyWorkouts} of {WEEKLY_GOAL} workouts completed this week</p>
             </div>
           </Card>
         </div>
@@ -670,8 +652,8 @@ function Dashboard() {
                       <div className="text-xs text-muted-foreground">Duration</div>
                     </div>
                     <div className="text-center">
-                      <div className="font-semibold">{log.steps.toLocaleString()}<span className="text-xs text-muted-foreground ml-0.5">steps</span></div>
-                      <div className="text-xs text-muted-foreground">Steps</div>
+                      <div className="font-semibold">{log.steps.toLocaleString()}<span className="text-xs text-muted-foreground ml-0.5">{ACTIVITY_METRICS[log.activity]?.unit ?? "steps"}</span></div>
+                      <div className="text-xs text-muted-foreground">{ACTIVITY_METRICS[log.activity]?.label ?? "Steps"}</div>
                     </div>
                     <div className="text-center">
                       <div className="font-semibold">{log.calories}<span className="text-xs text-muted-foreground ml-0.5">kcal</span></div>
@@ -684,41 +666,47 @@ function Dashboard() {
           </Card>
         )}
 
-        {/* Nutrition logs */}
-        <Card className="glass border-0 p-6">
-          <div className="flex items-center justify-between mb-5">
+        {/* AI Recalibration */}
+        <Card className="glass-strong border-0 p-6">
+          <div className="flex items-start justify-between mb-5 flex-wrap gap-2">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center shadow-[var(--shadow-glow)]">
-                <Salad className="w-5 h-5 text-primary-foreground" />
+                <Sparkles className="w-5 h-5 text-primary-foreground" />
               </div>
               <div>
-                <h3 className="font-semibold">Nutrition logs</h3>
-                <p className="text-xs text-muted-foreground">Your recent daily intake</p>
+                <h3 className="font-semibold flex items-center gap-2">
+                  AI-Driven Recalibration <Badge variant="secondary">{adjustments.length} new</Badge>
+                </h3>
+                <p className="text-xs text-muted-foreground">Momentm AI suggests these adjustments based on your last 7 days.</p>
               </div>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setNutritionDialogOpen(true)}>
-              <Plus className="w-3.5 h-3.5 mr-1" /> Log meal
-            </Button>
           </div>
-          {nutritionLogs.length === 0 ? (
-            <div className="text-center py-8 text-sm text-muted-foreground">No nutrition logged yet</div>
-          ) : (
-            <div className="space-y-3">
-              {nutritionLogs.slice(0, 7).map((log) => (
-                <div key={log.id} className="glass rounded-xl p-4 flex flex-wrap items-center gap-4">
-                  <div className="flex-1 min-w-[100px]">
-                    <div className="text-sm font-medium">{log.date}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      P {log.protein}g · C {log.carbs}g · F {log.fats}g
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-semibold">{log.calories.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">kcal</span></div>
-                  </div>
+          <div className="space-y-3">
+            {adjustments.map((a) => (
+              <div key={a.id} className="glass rounded-xl p-4 flex flex-wrap items-center gap-4">
+                <div className="flex-1 min-w-[200px]">
+                  <div className="text-sm font-medium">{a.metric}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{a.reason}</div>
                 </div>
-              ))}
-            </div>
-          )}
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground line-through">{a.from}</span>
+                  <TrendingUp className="w-3.5 h-3.5 text-primary" />
+                  <span className="font-semibold gradient-text">{a.to}</span>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setAdjustments(adjustments.filter((x) => x.id !== a.id))}>
+                    <X className="w-4 h-4" />
+                  </Button>
+                  <Button size="sm" className="gradient-bg" onClick={() => setAdjustments(adjustments.filter((x) => x.id !== a.id))}>
+                    <Check className="w-4 h-4 mr-1" /> Approve
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {adjustments.length === 0 && (
+              <div className="text-center py-8 text-sm text-muted-foreground">All caught up ✨</div>
+            )}
+          </div>
         </Card>
       </div>
     </AppShell>

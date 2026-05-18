@@ -1033,39 +1033,24 @@ def log_activity_view(request):
         return Response({'error': f'Calories seem too high for a {duration}-minute session (max {duration * MAX_CALORIES_PER_MINUTE:,}).'}, status=status.HTTP_400_BAD_REQUEST)
 
     # ── Require both photos ──────────────────────────────────────────────────
-    selfie = request.FILES.get('selfie')
+    # ── Require only screenshot ──────────────────────────────────────────────
     screenshot = request.FILES.get('screenshot')
-
-    if not selfie:
-        return Response({'error': 'A selfie photo is required to log an activity.'}, status=status.HTTP_400_BAD_REQUEST)
     if not screenshot:
         return Response({'error': 'A screenshot of your fitness app is required to log an activity.'}, status=status.HTTP_400_BAD_REQUEST)
 
     # ── Basic file checks ────────────────────────────────────────────────────
     allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/heic', 'image/webp']
-    if selfie.content_type not in allowed_types:
-        return Response({'error': 'Selfie must be a valid image file (jpg, png, heic, webp).'}, status=status.HTTP_400_BAD_REQUEST)
     if screenshot.content_type not in allowed_types:
         return Response({'error': 'Screenshot must be a valid image file (jpg, png, heic, webp).'}, status=status.HTTP_400_BAD_REQUEST)
-
-    # Max 10MB each
-    if selfie.size > 10 * 1024 * 1024:
-        return Response({'error': 'Selfie must be under 10MB.'}, status=status.HTTP_400_BAD_REQUEST)
     if screenshot.size > 10 * 1024 * 1024:
         return Response({'error': 'Screenshot must be under 10MB.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # ── Read image bytes first (before Supabase upload exhausts the pointer) ──
-    selfie.seek(0)
-    selfie_bytes = selfie.read()
+    # ── Read bytes before upload ─────────────────────────────────────────────
     screenshot.seek(0)
     screenshot_bytes = screenshot.read()
 
-    # ── Upload both photos to Supabase ───────────────────────────────────────
-    selfie.seek(0)
-    selfie_url = upload_image_to_supabase(selfie, folder="activity-selfies")
-    if not selfie_url:
-        return Response({'error': 'Failed to upload selfie. Please try again.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+    # ── Upload screenshot to Supabase ────────────────────────────────────────
+    selfie_url = None
     screenshot.seek(0)
     screenshot_url = upload_image_to_supabase(screenshot, folder="activity-screenshots")
     if not screenshot_url:
@@ -1084,24 +1069,17 @@ def log_activity_view(request):
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
         prompt = f"""You are verifying a fitness activity log for an app called Momentm.
-The user claims to have done a {activity} workout for {duration} minutes, {steps} steps, and {calories} calories.
+The user claims to have done a {activity} workout for {duration} minutes.
 
-You have been given two images:
-1. A selfie of the person (should show a person who looks like they have been exercising)
-2. A screenshot from a fitness app (should show workout data matching the claimed activity)
-
-Verify the following:
-- Image 1 looks like a genuine workout selfie (person present, looks active or post-workout)
-- Image 2 looks like a genuine fitness app screenshot showing {activity} activity
-- The two images appear to be different photos (not the same image uploaded twice)
+You have been given a screenshot from a fitness app. Verify that:
+- It looks like a genuine fitness app screenshot (not a random photo or document)
+- It shows some kind of workout or activity data
+- It is plausibly related to a {activity} activity
 
 Reply with ONLY a JSON object in this exact format, nothing else:
 {{"verified": true or false, "reason": "brief reason in one sentence"}}"""
 
-        selfie_b64 = base64.standard_b64encode(selfie_bytes).decode('utf-8')
         screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode('utf-8')
-
-        selfie_type = selfie.content_type if selfie.content_type != 'image/heic' else 'image/jpeg'
         screenshot_type = screenshot.content_type if screenshot.content_type != 'image/heic' else 'image/jpeg'
 
         message = client.messages.create(
@@ -1110,7 +1088,6 @@ Reply with ONLY a JSON object in this exact format, nothing else:
             messages=[{
                 "role": "user",
                 "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": selfie_type, "data": selfie_b64}},
                     {"type": "image", "source": {"type": "base64", "media_type": screenshot_type, "data": screenshot_b64}},
                     {"type": "text", "text": prompt}
                 ]
@@ -1170,7 +1147,6 @@ Reply with ONLY a JSON object in this exact format, nothing else:
         session_pts = int(session_pts * DUPLICATE_ACTIVITY_POINT_MULTIPLIER)
     if is_first_log_today:
         session_pts += FIRST_LOG_BONUS
-
     if not is_verified:
         session_pts = 0
 
