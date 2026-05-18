@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trophy, Flame, Medal, Crown, Award, Zap, Star, Ticket, Heart, Tag, Users, ListFilter, Calendar } from "lucide-react";
 import { toast } from "sonner";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
@@ -25,7 +26,10 @@ type LeaderboardUser = {
   points: number;
   is_premium: boolean;
   cosmetics: string[];
+  title_name: string | null;
   you: boolean;
+  avatar_url: string | null;
+  user_id: number;
 };
 
 type Reward = {
@@ -191,17 +195,22 @@ function Row({ u }: { u: LeaderboardUser }) {
   const hasBadge = u.cosmetics.includes("profile_badge");
   const hasTitle = u.cosmetics.includes("leaderboard_title");
 
+  const profileHref = u.you ? "/profile" : `/profile/${u.user_id}`;
+
   return (
-    <div className={`glass rounded-xl p-4 flex items-center gap-4 ${u.you ? "ring-2 ring-primary" : ""}`}>
+    <Link href={profileHref} className={`glass rounded-xl p-4 flex items-center gap-4 hover:ring-1 hover:ring-border transition-all ${u.you ? "ring-2 ring-primary" : ""}`}>
       <div className="w-8 flex justify-center">{rankIcon}</div>
-      <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm shrink-0">
-        {u.name[0]}
+      <div className={cn("w-10 h-10 rounded-full overflow-hidden shrink-0", !u.avatar_url && "gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm")}>
+        {u.avatar_url
+          ? <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
+          : u.name[0]
+        }
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-medium text-sm flex items-center gap-1.5 flex-wrap">
           {u.name}
           {hasBadge && <span className="cosmetic-badge"><Award className="w-5 h-5" /></span>}
-          {hasTitle && <span className="cosmetic-title">Iron Athlete</span>}
+          {hasTitle && u.title_name && <span className="cosmetic-title">{u.title_name}</span>}
           {u.you && <Badge variant="secondary" className="text-xs">You</Badge>}
           {u.is_premium && <Badge className="text-xs gradient-bg border-0 text-primary-foreground">Premium</Badge>}
         </div>
@@ -217,7 +226,7 @@ function Row({ u }: { u: LeaderboardUser }) {
         <div className="font-semibold">{u.points.toLocaleString()}</div>
         <div className="text-xs text-muted-foreground">points</div>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -405,28 +414,33 @@ export default function LeaderboardPage() {
                     </Card>
                   );
                   return (
-                    <Card key={u.name} className={`glass-strong border-0 p-5 text-center ${i === 1 ? "scale-105" : ""} ${u.you ? "ring-2 ring-primary" : ""}`}>
-                      <div className="flex justify-center mb-2">
-                        {u.rank === 1 ? <Crown className="w-6 h-6 text-yellow-400" /> : <Medal className="w-5 h-5 text-muted-foreground" />}
-                      </div>
-                      <div className="w-14 h-14 mx-auto rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold mb-2">
-                        {u.name[0]}
-                      </div>
-                      <div className="font-semibold text-sm">{u.name}</div>
-                      <div className="text-xs text-muted-foreground">{u.points.toLocaleString()} pts</div>
-                      <div className="flex items-center justify-center gap-1 mt-0.5">
-                        {u.cosmetics.includes("streak_flame")
-                          ? <span className="cosmetic-flame"><Flame className="w-3 h-3" /></span>
-                          : <Flame className="w-3 h-3 text-muted-foreground" />
-                        }
-                        <span className="text-xs text-muted-foreground">{u.streak}d</span>
-                      </div>
-                      {u.cosmetics.includes("profile_badge") && (
-                        <span className="cosmetic-badge flex justify-center mt-1">
-                          <Award className="w-5 h-5" />
-                        </span>
-                      )}
-                    </Card>
+                    <Link key={u.name} href={u.you ? "/profile" : `/profile/${u.user_id}`}>
+                      <Card className={`glass-strong border-0 p-5 text-center cursor-pointer hover:ring-1 hover:ring-border transition-all ${i === 1 ? "scale-105" : ""} ${u.you ? "ring-2 ring-primary" : ""}`}>
+                        <div className="flex justify-center mb-2">
+                          {u.rank === 1 ? <Crown className="w-6 h-6 text-yellow-400" /> : <Medal className="w-5 h-5 text-muted-foreground" />}
+                        </div>
+                        <div className={cn("w-14 h-14 mx-auto rounded-full overflow-hidden mb-2", !u.avatar_url && "gradient-bg flex items-center justify-center text-primary-foreground font-semibold")}>
+                          {u.avatar_url
+                            ? <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
+                            : u.name[0]
+                          }
+                        </div>
+                        <div className="font-semibold text-sm">{u.name}</div>
+                        <div className="text-xs text-muted-foreground">{u.points.toLocaleString()} pts</div>
+                        <div className="flex items-center justify-center gap-1 mt-0.5">
+                          {u.cosmetics.includes("streak_flame")
+                            ? <span className="cosmetic-flame"><Flame className="w-3 h-3" /></span>
+                            : <Flame className="w-3 h-3 text-muted-foreground" />
+                          }
+                          <span className="text-xs text-muted-foreground">{u.streak}d</span>
+                        </div>
+                        {u.cosmetics.includes("profile_badge") && (
+                          <span className="cosmetic-badge flex justify-center mt-1">
+                            <Award className="w-5 h-5" />
+                          </span>
+                        )}
+                      </Card>
+                    </Link>
                   );
                 })}
               </div>

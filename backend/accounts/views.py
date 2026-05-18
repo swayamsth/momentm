@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import SignupSerializer
-from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership, Reward, RewardCode, ClaimedReward, Follow
+from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership, Reward, RewardCode, ClaimedReward, Follow, SleepLog, NutritionLog
 import uuid
 import os
 
@@ -171,6 +171,22 @@ def logout_view(request):
         return Response({'message': 'Logged out successfully.'})
     except Exception:
         return Response({'error': 'Invalid token.'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_account_view(request):
+    try:
+        refresh_token = request.data.get('refresh')
+        if refresh_token:
+            try:
+                RefreshToken(refresh_token).blacklist()
+            except Exception:
+                pass
+        request.user.delete()
+        return Response({'message': 'Account deleted successfully.'})
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['GET'])
@@ -975,9 +991,14 @@ def get_notifications_view(request):
 def log_activity_view(request):
     from django.utils import timezone
 
+    # ── Allowed activities only ──────────────────────────────────────────────
+    ALLOWED = ['Run', 'Swim', 'Cycle', 'Strength', 'Skipping']
+
     activity = request.data.get('activity', '').strip()
     if not activity:
         return Response({'error': 'Activity name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+    if activity not in ALLOWED:
+        return Response({'error': f'Activity must be one of: {", ".join(ALLOWED)}'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         duration = int(request.data.get('duration', 0))
@@ -997,6 +1018,109 @@ def log_activity_view(request):
     if calories > duration * MAX_CALORIES_PER_MINUTE:
         return Response({'error': f'Calories seem too high for a {duration}-minute session (max {duration * MAX_CALORIES_PER_MINUTE:,}).'}, status=status.HTTP_400_BAD_REQUEST)
 
+    # ── Require both photos ──────────────────────────────────────────────────
+    selfie = request.FILES.get('selfie')
+    screenshot = request.FILES.get('screenshot')
+
+    if not selfie:
+        return Response({'error': 'A selfie photo is required to log an activity.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not screenshot:
+        return Response({'error': 'A screenshot of your fitness app is required to log an activity.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # ── Basic file checks ────────────────────────────────────────────────────
+    allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/heic', 'image/webp']
+    if selfie.content_type not in allowed_types:
+        return Response({'error': 'Selfie must be a valid image file (jpg, png, heic, webp).'}, status=status.HTTP_400_BAD_REQUEST)
+    if screenshot.content_type not in allowed_types:
+        return Response({'error': 'Screenshot must be a valid image file (jpg, png, heic, webp).'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Max 10MB each
+    if selfie.size > 10 * 1024 * 1024:
+        return Response({'error': 'Selfie must be under 10MB.'}, status=status.HTTP_400_BAD_REQUEST)
+    if screenshot.size > 10 * 1024 * 1024:
+        return Response({'error': 'Screenshot must be under 10MB.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # ── Read image bytes first (before Supabase upload exhausts the pointer) ──
+    selfie.seek(0)
+    selfie_bytes = selfie.read()
+    screenshot.seek(0)
+    screenshot_bytes = screenshot.read()
+
+    # ── Upload both photos to Supabase ───────────────────────────────────────
+    selfie.seek(0)
+    selfie_url = upload_image_to_supabase(selfie, folder="activity-selfies")
+    if not selfie_url:
+        return Response({'error': 'Failed to upload selfie. Please try again.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    screenshot.seek(0)
+    screenshot_url = upload_image_to_supabase(screenshot, folder="activity-screenshots")
+    if not screenshot_url:
+        return Response({'error': 'Failed to upload screenshot. Please try again.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # ── Verify with Claude vision ────────────────────────────────────────────
+    is_verified = False
+    verification_status = 'pending'
+    verification_reason = ''
+
+    try:
+        import anthropic
+        import base64
+        import json
+
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+        prompt = f"""You are verifying a fitness activity log for an app called Momentm.
+The user claims to have done a {activity} workout for {duration} minutes, {steps} steps, and {calories} calories.
+
+You have been given two images:
+1. A selfie of the person (should show a person who looks like they have been exercising)
+2. A screenshot from a fitness app (should show workout data matching the claimed activity)
+
+Verify the following:
+- Image 1 looks like a genuine workout selfie (person present, looks active or post-workout)
+- Image 2 looks like a genuine fitness app screenshot showing {activity} activity
+- The two images appear to be different photos (not the same image uploaded twice)
+
+Reply with ONLY a JSON object in this exact format, nothing else:
+{{"verified": true or false, "reason": "brief reason in one sentence"}}"""
+
+        selfie_b64 = base64.standard_b64encode(selfie_bytes).decode('utf-8')
+        screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode('utf-8')
+
+        selfie_type = selfie.content_type if selfie.content_type != 'image/heic' else 'image/jpeg'
+        screenshot_type = screenshot.content_type if screenshot.content_type != 'image/heic' else 'image/jpeg'
+
+        message = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": selfie_type, "data": selfie_b64}},
+                    {"type": "image", "source": {"type": "base64", "media_type": screenshot_type, "data": screenshot_b64}},
+                    {"type": "text", "text": prompt}
+                ]
+            }]
+        )
+
+        raw = message.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = json.loads(raw.strip())
+        is_verified = result.get('verified', False)
+        verification_reason = result.get('reason', '')
+        verification_status = 'verified' if is_verified else 'rejected'
+        print(f"Claude verification result: {verification_status} - {verification_reason}")
+
+    except Exception as e:
+        print(f"Claude verification error: {e}")
+        is_verified = False
+        verification_status = 'pending'
+        verification_reason = 'Verification service unavailable, log saved for manual review.'
+
+    # ── Save the activity log ────────────────────────────────────────────────
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
     daily_cap = DAILY_CAP_PREMIUM if profile.is_premium else DAILY_CAP_FREE
 
@@ -1006,7 +1130,6 @@ def log_activity_view(request):
     is_first_log_today = not today_logs.exists()
     already_logged_today = today_logs.filter(activity__iexact=activity).exists()
 
-    # Estimate points already earned today to inform the cap warning
     today_points = FIRST_LOG_BONUS if not is_first_log_today else 0
     seen = set()
     for log in today_logs:
@@ -1022,6 +1145,10 @@ def log_activity_view(request):
         duration=duration,
         steps=steps,
         calories=calories,
+        selfie_url=selfie_url,
+        screenshot_url=screenshot_url,
+        is_verified=is_verified,
+        verification_status=verification_status,
     )
 
     session_pts = calc_session_points(duration, steps, calories)
@@ -1029,6 +1156,9 @@ def log_activity_view(request):
         session_pts = int(session_pts * DUPLICATE_ACTIVITY_POINT_MULTIPLIER)
     if is_first_log_today:
         session_pts += FIRST_LOG_BONUS
+
+    if not is_verified:
+        session_pts = 0
 
     response_data = {
         'id': log.id,
@@ -1038,10 +1168,17 @@ def log_activity_view(request):
         'calories': log.calories,
         'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
         'points_earned': session_pts,
+        'is_verified': is_verified,
+        'verification_status': verification_status,
+        'verification_reason': verification_reason,
     }
 
-    if today_points >= daily_cap:
-        response_data['warning'] = f"You've reached your {daily_cap}-point daily cap — this activity is logged but won't earn points today."
+    if not is_verified and verification_status == 'rejected':
+        response_data['warning'] = f'Activity logged but not verified: {verification_reason}. No points awarded.'
+    elif not is_verified and verification_status == 'pending':
+        response_data['warning'] = verification_reason
+    elif today_points >= daily_cap:
+        response_data['warning'] = f"You've reached your {daily_cap}-point daily cap."
         response_data['points_earned'] = 0
     elif already_logged_today:
         response_data['warning'] = f'You already logged {activity} today — this entry earns {int(DUPLICATE_ACTIVITY_POINT_MULTIPLIER * 100)}% points.'
@@ -1060,6 +1197,8 @@ def get_activities_view(request):
         'steps': log.steps,
         'calories': log.calories,
         'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
+        'is_verified': log.is_verified,
+        'verification_status': log.verification_status,
     } for log in logs]
     return Response(data)
 
@@ -1202,6 +1341,196 @@ def loop_leaderboard_view(request, loop_id):
         entry['rank'] = i + 1
 
     return Response(leaderboard)
+
+
+# ─── Sleep ────────────────────────────────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def log_sleep_view(request):
+    from django.utils import timezone
+    import datetime
+
+    try:
+        hours = float(request.data.get('hours', 0))
+    except (ValueError, TypeError):
+        return Response({'error': 'Hours must be a number.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if hours < 0 or hours > 24:
+        return Response({'error': 'Hours must be between 0 and 24.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    date_str = request.data.get('date')
+    if date_str:
+        try:
+            date = datetime.date.fromisoformat(date_str)
+        except ValueError:
+            return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        date = timezone.now().date()
+
+    log, created = SleepLog.objects.update_or_create(
+        user=request.user,
+        date=date,
+        defaults={'hours': hours},
+    )
+
+    return Response({
+        'id': log.id,
+        'hours': log.hours,
+        'date': log.date.isoformat(),
+        'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
+        'updated': not created,
+    }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_sleep_view(request):
+    logs = SleepLog.objects.filter(user=request.user)[:14]
+    data = [{
+        'id': log.id,
+        'hours': log.hours,
+        'date': log.date.isoformat(),
+        'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
+    } for log in logs]
+    return Response(data)
+
+
+# ─── Nutrition ────────────────────────────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def log_nutrition_view(request):
+    from django.utils import timezone
+    import datetime
+
+    try:
+        calories = int(request.data.get('calories', 0))
+        protein = int(request.data.get('protein', 0))
+        carbs = int(request.data.get('carbs', 0))
+        fats = int(request.data.get('fats', 0))
+    except (ValueError, TypeError):
+        return Response({'error': 'All values must be numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if calories < 0 or protein < 0 or carbs < 0 or fats < 0:
+        return Response({'error': 'Values cannot be negative.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if calories > 10000:
+        return Response({'error': 'Calories seem too high (max 10,000).'}, status=status.HTTP_400_BAD_REQUEST)
+
+    date_str = request.data.get('date')
+    if date_str:
+        try:
+            date = datetime.date.fromisoformat(date_str)
+        except ValueError:
+            return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        date = timezone.now().date()
+
+    log, created = NutritionLog.objects.update_or_create(
+        user=request.user,
+        date=date,
+        defaults={
+            'calories': calories,
+            'protein': protein,
+            'carbs': carbs,
+            'fats': fats,
+        },
+    )
+
+    return Response({
+        'id': log.id,
+        'calories': log.calories,
+        'protein': log.protein,
+        'carbs': log.carbs,
+        'fats': log.fats,
+        'date': log.date.isoformat(),
+        'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
+        'updated': not created,
+    }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_nutrition_view(request):
+    logs = NutritionLog.objects.filter(user=request.user)[:14]
+    data = [{
+        'id': log.id,
+        'calories': log.calories,
+        'protein': log.protein,
+        'carbs': log.carbs,
+        'fats': log.fats,
+        'date': log.date.isoformat(),
+        'logged_at': log.logged_at.strftime('%b %d, %H:%M'),
+    } for log in logs]
+    return Response(data)
+
+
+# ─── Profile ──────────────────────────────────────────────────────────────────
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def profile_view(request):
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if request.method == 'PATCH':
+        bio = request.data.get('bio', profile.bio)
+        is_public = request.data.get('is_public', profile.is_public)
+        profile.bio = bio
+        profile.is_public = is_public
+        profile.save()
+    return Response({
+        'email': request.user.email,
+        'first_name': request.user.first_name,
+        'last_name': request.user.last_name,
+        'bio': profile.bio,
+        'is_public': profile.is_public,
+        'avatar_url': profile.avatar_url,
+        'is_premium': profile.is_premium_active,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_avatar_view(request):
+    image = request.FILES.get('image')
+    if not image:
+        return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
+    image_url = upload_image_to_supabase(image, folder="avatars")
+    if not image_url:
+        return Response({'error': 'Upload failed.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    profile.avatar_url = image_url
+    profile.save()
+    return Response({'avatar_url': image_url})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def toggle_cosmetic_view(request, claimed_id):
+    try:
+        claimed = ClaimedReward.objects.get(id=claimed_id, user=request.user)
+        claimed.is_equipped = not claimed.is_equipped
+        claimed.save()
+        return Response({'is_equipped': claimed.is_equipped})
+    except ClaimedReward.DoesNotExist:
+        return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+def public_profile_view(request, user_id):
+    try:
+        user = User.objects.get(id=user_id)
+        profile = UserProfile.objects.get(user=user)
+        if not profile.is_public:
+            return Response({'error': 'This profile is private.'}, status=status.HTTP_403_FORBIDDEN)
+        return Response({
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'bio': profile.bio,
+            'avatar_url': profile.avatar_url,
+        })
+    except (User.DoesNotExist, UserProfile.DoesNotExist):
+        return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
 
 # ─── Rewards ──────────────────────────────────────────────────────────────────

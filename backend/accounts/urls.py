@@ -9,6 +9,7 @@ urlpatterns = [
     path('login/', views.login_view, name='login'),
     path('verify-2fa/', views.verify_2fa_view, name='verify-2fa'),
     path('logout/', views.logout_view, name='logout'),
+    path('delete-account/', views.delete_account_view, name='delete-account'),
     path('dashboard/', views.dashboard_view, name='dashboard'),
     path('toggle-2fa/', views.toggle_2fa_view, name='toggle-2fa'),
     path('forgot-password/', views.forgot_password_view, name='forgot-password'),
@@ -41,9 +42,19 @@ urlpatterns = [
     # Notifications
     path('notifications/', views.get_notifications_view, name='notifications'),
     # Activities
-    # Activities
     path('activities/', views.get_activities_view, name='get-activities'),
     path('activities/log/', views.log_activity_view, name='log-activity'),
+    # Sleep
+    path('sleep/', views.get_sleep_view, name='get-sleep'),
+    path('sleep/log/', views.log_sleep_view, name='log-sleep'),
+    # Nutrition
+    path('nutrition/', views.get_nutrition_view, name='get-nutrition'),
+    path('nutrition/log/', views.log_nutrition_view, name='log-nutrition'),
+    # Profile
+    path('profile/', views.profile_view, name='profile'),
+    path('profile/upload-avatar/', views.upload_avatar_view, name='upload-avatar'),
+    path('profile/cosmetics/<int:claimed_id>/toggle/', views.toggle_cosmetic_view, name='toggle-cosmetic'),
+    path('profile/<int:user_id>/', views.public_profile_view, name='public-profile'),
     # Leaderboard
     path('leaderboard/', views.leaderboard_view, name='leaderboard'),
     path('loops/<int:loop_id>/leaderboard/', views.loop_leaderboard_view, name='loop-leaderboard'),
