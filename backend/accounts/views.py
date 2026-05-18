@@ -1912,15 +1912,17 @@ def public_profile_view(request, user_id):
     followers_count = Follow.objects.filter(following=target_user, status='accepted').count()
     following_count = Follow.objects.filter(follower=target_user, status='accepted').count()
 
+    import datetime as dt
+    from django.utils import timezone as tz
     total_points = compute_user_points(target_user, profile if profile else None)
     total_activities = ActivityLog.objects.filter(user=target_user).count()
     logs_dates = set(ActivityLog.objects.filter(user=target_user).values_list('logged_at__date', flat=True))
-    today = timezone.now().date()
+    today = tz.now().date()
     current_streak = 0
     cur = today
     while cur in logs_dates:
         current_streak += 1
-        cur -= datetime.timedelta(days=1)
+        cur -= dt.timedelta(days=1)
 
     cosmetics_data = get_active_cosmetics(target_user)
 
