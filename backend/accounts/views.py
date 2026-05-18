@@ -2305,9 +2305,45 @@ def plan_setup_view(request):
     import datetime
 
     if request.method == 'GET':
+        import datetime
         try:
             goal = request.user.goal
-            current_plan = goal.weekly_plans.filter(status__in=['active', 'pending_review']).first()
+            profile = request.user.userprofile
+            active_plan = goal.weekly_plans.filter(status='active').first()
+            pending_plan = goal.weekly_plans.filter(status='pending_review').first()
+
+            # Auto-recalibrate for premium users every 7 days
+            if profile.is_premium_active and active_plan and not pending_plan:
+                recent_recal = goal.weekly_plans.filter(
+                    is_recalibration=True,
+                    created_at__gte=timezone.now() - datetime.timedelta(days=7)
+                ).exists()
+                plan_age_days = (timezone.now() - active_plan.created_at).days
+                if not recent_recal and plan_age_days >= 7:
+                    try:
+                        nutrition_data = _get_nutrition_context(request.user)
+                        fitness_profile_ctx = _get_fitness_profile_context(request.user)
+                        sleep_data = _get_sleep_context(request.user)
+                        plan_data = _generate_plan_with_openai(
+                            goal.goal_text, goal.timeframe_days,
+                            week_number=active_plan.week_number + 1,
+                            nutrition_data=nutrition_data,
+                            fitness_profile=fitness_profile_ctx,
+                            sleep_data=sleep_data,
+                        )
+                        pending_plan = WeeklyPlan.objects.create(
+                            goal=goal,
+                            week_number=active_plan.week_number + 1,
+                            week_start=timezone.now().date(),
+                            plan_data=plan_data,
+                            status='pending_review',
+                            is_recalibration=True,
+                            recalibration_note="Your plan has been recalibrated based on your recent activity, sleep, and nutrition.",
+                        )
+                    except Exception:
+                        pass
+
+            current_plan = pending_plan or active_plan
             past_plans = goal.weekly_plans.filter(status__in=['accepted', 'active', 'denied']).order_by('-week_number')[:5]
             return Response({
                 'has_goal': True,
@@ -2321,7 +2357,7 @@ def plan_setup_view(request):
                 },
                 'current_plan': _serialize_plan(current_plan) if current_plan else None,
                 'past_plans': [_serialize_plan(p) for p in past_plans],
-                'is_premium': request.user.userprofile.is_premium_active,
+                'is_premium': profile.is_premium_active,
             })
         except UserGoal.DoesNotExist:
             return Response({'has_goal': False})
