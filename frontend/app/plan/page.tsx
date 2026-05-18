@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -330,12 +331,19 @@ export default function PlanPage() {
 
         {/* ── Premium upsell for recalibration ── */}
         {!is_premium && activePlan && (
-          <Card className="glass border-0 p-4 flex items-center gap-3">
-            <Sparkles className="w-5 h-5 text-primary shrink-0" />
-            <div>
-              <p className="text-sm font-medium">Weekly recalibration is a Premium feature</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Upgrade to get your plan auto-adjusted every week based on your activity.</p>
+          <Card className="glass border-0 p-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-5 h-5 text-primary shrink-0" />
+              <div>
+                <p className="text-sm font-medium">Weekly recalibration is a Premium feature</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Upgrade to get your plan auto-adjusted every week based on your activity.</p>
+              </div>
             </div>
+            <Link href="/payment">
+              <Button size="sm" className="gradient-bg border-0 text-primary-foreground shrink-0 shadow-[var(--shadow-elegant)] hover:opacity-90">
+                Upgrade
+              </Button>
+            </Link>
           </Card>
         )}
 
