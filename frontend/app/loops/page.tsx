@@ -1,19 +1,18 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
 import {
-  Heart, MessageCircle, Users, Target, Search,
+  Heart, MessageCircle, Users, Search,
   Plus, Loader2, Send, X, Lock, Globe, Pencil, Check, Trash2,
-  UserCheck, UserX, ImageIcon, ZoomIn, Calendar, ChevronDown, Bell,
-  Crown, ArrowLeft,
+  UserCheck, UserX, ImageIcon, ZoomIn, Calendar, ChevronDown,
+  Crown, ArrowLeft, TrendingUp, Flame, Camera, Utensils, Zap,
 } from "lucide-react";
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { usePremium } from "@/hooks/usePremium";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
@@ -32,13 +31,6 @@ const TAG_COLORS: Record<string, string> = {
   Other: "oklch(0.6 0.08 250)",
 };
 
-const challengesData = [
-  { name: "March Mile-A-Day", loop: "5AM Run Club", progress: 68, goal: "31 miles total", participants: 240, color: "oklch(0.6 0.22 255)" },
-  { name: "100k Steps Week", loop: "Cycle 100", progress: 42, goal: "100,000 group steps", participants: 86, color: "oklch(0.7 0.16 155)" },
-  { name: "21-Day Meditation", loop: "Mindful Mornings", progress: 85, goal: "21 sessions", participants: 412, color: "oklch(0.55 0.18 300)" },
-  { name: "Push-Up October", loop: "Strength 200", progress: 23, goal: "10,000 group push-ups", participants: 145, color: "oklch(0.62 0.22 25)" },
-];
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Loop {
@@ -54,6 +46,7 @@ interface Loop {
   pending: boolean;
   joined_at?: string;
   image_url?: string | null;
+  cover_url?: string | null;
 }
 
 interface JoinRequest {
@@ -63,19 +56,6 @@ interface JoinRequest {
   user: string;
   handle: string;
   requested_at: string;
-}
-
-interface Notification {
-  id: string;
-  type: "join_request" | "new_member";
-  message: string;
-  loop_id: number;
-  loop_name: string;
-  user: string;
-  handle: string;
-  membership_id?: number;
-  time: string;
-  read: boolean;
 }
 
 interface Comment {
@@ -116,6 +96,19 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function handleUnauthorized() {
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("refresh_token");
+  localStorage.removeItem("user");
+  window.location.href = "/";
+}
+
+async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
+  const res = await fetch(url, { ...options, headers: { ...authHeaders(), ...(options?.headers || {}) } });
+  if (res.status === 401) handleUnauthorized();
+  return res;
+}
+
 function getMemberSince(dateStr: string) {
   const date = new Date(dateStr);
   return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
@@ -128,28 +121,165 @@ function loadUser(): { first_name?: string; email?: string } | null {
   } catch { return null; }
 }
 
-const SEEN_NOTIF_KEY = "momentm_seen_notif_ids";
+const SEARCH_HISTORY_KEY = "momentm_loop_search_history";
 
-function getSeenIds(): Set<string> {
+function getSearchHistory(): string[] {
   try {
-    const raw = localStorage.getItem(SEEN_NOTIF_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch { return new Set(); }
+    const raw = typeof window !== "undefined" ? localStorage.getItem(SEARCH_HISTORY_KEY) : null;
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
 }
 
-function saveSeenIds(ids: Set<string>) {
-  try { localStorage.setItem(SEEN_NOTIF_KEY, JSON.stringify([...ids])); } catch { }
+function saveToSearchHistory(term: string) {
+  try {
+    const history = getSearchHistory().filter((h) => h.toLowerCase() !== term.toLowerCase());
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify([term, ...history].slice(0, 8)));
+  } catch { }
 }
 
-function markAllSeen(notifs: Notification[]) {
-  const seen = getSeenIds();
-  notifs.forEach((n) => seen.add(n.id));
-  saveSeenIds(seen);
+function removeFromSearchHistory(term: string) {
+  try {
+    const history = getSearchHistory().filter((h) => h !== term);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
+  } catch { }
 }
 
-function countUnseen(notifs: Notification[]): number {
-  const seen = getSeenIds();
-  return notifs.filter((n) => !seen.has(n.id)).length;
+
+// ─── Search Bar with Suggestions + History ────────────────────────────────────
+
+function LoopSearchBar({
+  loops,
+  searchQuery,
+  setSearchQuery,
+  onNavigateToLoop,
+}: {
+  loops: Loop[];
+  searchQuery: string;
+  setSearchQuery: (v: string) => void;
+  onNavigateToLoop: (id: number) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const [history, setHistory] = useState<string[]>([]);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setHistory(getSearchHistory());
+  }, [focused]);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setFocused(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const suggestions = searchQuery.trim().length > 0
+    ? loops.filter((l) => l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        l.desc?.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 6)
+    : [];
+
+  const showDropdown = focused && (suggestions.length > 0 || (searchQuery === "" && history.length > 0));
+
+  const handleSelectSuggestion = (loop: Loop) => {
+    saveToSearchHistory(loop.name);
+    setFocused(false);
+    onNavigateToLoop(loop.id);
+  };
+
+  const handleSelectHistory = (term: string) => {
+    setSearchQuery(term);
+    setFocused(true);
+  };
+
+  const handleRemoveHistory = (term: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    removeFromSearchHistory(term);
+    setHistory(getSearchHistory());
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && searchQuery.trim()) {
+      saveToSearchHistory(searchQuery.trim());
+      setFocused(false);
+    }
+    if (e.key === "Escape") setFocused(false);
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative flex-1">
+      <div className="glass rounded-xl flex items-center gap-2 px-4">
+        <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onKeyDown={handleKeyDown}
+          placeholder="Search loops..."
+          className="flex-1 bg-transparent py-3 text-sm outline-none"
+        />
+        {searchQuery && (
+          <button onClick={() => { setSearchQuery(""); setFocused(true); }} className="text-muted-foreground hover:text-foreground">
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      {showDropdown && (
+        <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-background rounded-xl shadow-lg border border-border overflow-hidden">
+          {searchQuery === "" && history.length > 0 && (
+            <>
+              <div className="px-4 pt-3 pb-1 flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground">Recent searches</span>
+              </div>
+              {history.map((term) => (
+                <button key={term} onClick={() => handleSelectHistory(term)}
+                  className="w-full flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-accent transition-colors text-left">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Search className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    <span className="text-sm truncate">{term}</span>
+                  </div>
+                  <button onClick={(e) => handleRemoveHistory(term, e)}
+                    className="text-muted-foreground hover:text-foreground p-0.5 rounded flex-shrink-0">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </button>
+              ))}
+            </>
+          )}
+          {suggestions.length > 0 && (
+            <>
+              {searchQuery && (
+                <div className="px-4 pt-3 pb-1">
+                  <span className="text-xs font-semibold text-muted-foreground">Loops</span>
+                </div>
+              )}
+              {suggestions.map((loop) => (
+                <button key={loop.id} onClick={() => handleSelectSuggestion(loop)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-accent transition-colors text-left">
+                  <LoopAvatar loop={loop} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium truncate">{loop.name}</span>
+                      {loop.is_private && <Lock className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
+                    </div>
+                    <span className="text-xs text-muted-foreground">{loop.members} members · {loop.tag}</span>
+                  </div>
+                  {loop.joined || loop.created_by_me ? (
+                    <Badge className="text-[10px] gradient-bg text-primary-foreground border-0 flex-shrink-0">
+                      {loop.created_by_me ? "Admin" : "Joined"}
+                    </Badge>
+                  ) : null}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Loop Avatar ──────────────────────────────────────────────────────────────
@@ -895,6 +1025,171 @@ function PostCard({ post, loops, onLikePost, onAddComment, onLikeComment, onDele
   );
 }
 
+// ─── Join Requests Sidebar ────────────────────────────────────────────────────
+
+function JoinRequestsSidebar({ requests, onApprove, onDeny }: {
+  requests: JoinRequest[];
+  onApprove: (req: JoinRequest) => void;
+  onDeny: (req: JoinRequest) => void;
+}) {
+  if (requests.length === 0) return null;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 px-1">
+        <UserCheck className="w-4 h-4 text-amber-500" />
+        <h3 className="font-semibold text-sm">Join Requests</h3>
+        <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] flex items-center justify-center font-bold">
+          {requests.length > 9 ? "9+" : requests.length}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {requests.slice(0, 5).map((req) => (
+          <Card key={req.id} className="glass border-0 p-3">
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className="w-8 h-8 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-xs flex-shrink-0">
+                {req.user[0].toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold truncate">{req.user}</p>
+                <p className="text-xs text-muted-foreground truncate">→ {req.loop_name}</p>
+              </div>
+            </div>
+            <div className="flex gap-1.5">
+              <Button size="sm" className="flex-1 gradient-bg text-primary-foreground border-0 h-7 text-xs gap-1"
+                onClick={() => onApprove(req)}>
+                <UserCheck className="w-3 h-3" /> Approve
+              </Button>
+              <Button size="sm" variant="outline" className="flex-1 h-7 text-xs border-red-200 text-red-500 hover:bg-red-50 gap-1"
+                onClick={() => onDeny(req)}>
+                <UserX className="w-3 h-3" /> Deny
+              </Button>
+            </div>
+          </Card>
+        ))}
+        {requests.length > 5 && (
+          <p className="text-xs text-muted-foreground text-center py-1">+{requests.length - 5} more in Requests tab</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Activity Ticker ──────────────────────────────────────────────────────────
+
+function ActivityTicker({ posts }: { posts: Post[] }) {
+  if (posts.length === 0) return null;
+  const items = posts.slice(0, 10).map((p) =>
+    p.loop ? `${p.user} posted in ${p.loop}` : `${p.user} shared a public update`
+  );
+  const all = [...items, ...items];
+  return (
+    <>
+      <style>{`@keyframes ticker-scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}`}</style>
+      <div className="glass rounded-2xl px-4 py-2.5 mb-5 flex items-center gap-3 overflow-hidden">
+        <div className="flex items-center gap-1.5 shrink-0 pr-3 border-r border-border/60">
+          <Flame className="w-3.5 h-3.5 text-orange-500" />
+          <span className="text-xs font-semibold text-orange-500">Live</span>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <div style={{ animation: "ticker-scroll 28s linear infinite", display: "flex", gap: "2.5rem", whiteSpace: "nowrap" }}>
+            {all.map((item, i) => (
+              <span key={i} className="text-xs text-muted-foreground shrink-0">
+                {item}<span className="mx-3 opacity-30">•</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Trending Loops Sidebar ───────────────────────────────────────────────────
+
+function TrendingLoopsSidebar({ loops, posts, onLoopClick, onJoinLeave }: {
+  loops: Loop[];
+  posts: Post[];
+  onLoopClick: (id: number) => void;
+  onJoinLeave: (id: number, action: "join" | "leave") => void;
+}) {
+  const trending = useMemo(() => {
+    const stats = new Map<number, { likes: number; comments: number; posts: number }>();
+    posts.forEach((p) => {
+      if (p.loop_id) {
+        const s = stats.get(p.loop_id) || { likes: 0, comments: 0, posts: 0 };
+        stats.set(p.loop_id, { likes: s.likes + (p.likes || 0), comments: s.comments + (p.comments?.length || 0), posts: s.posts + 1 });
+      }
+    });
+    return loops
+      .filter((l) => !l.is_private)
+      .map((l) => {
+        const s = stats.get(l.id) || { likes: 0, comments: 0, posts: 0 };
+        return { ...l, score: l.members * 2 + s.posts * 3 + s.likes + s.comments, totalLikes: s.likes, totalComments: s.comments };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8);
+  }, [loops, posts]);
+
+  const [joiningId, setJoiningId] = useState<number | null>(null);
+
+  const handleJoin = async (loop: typeof trending[0], e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (loop.pending || loop.created_by_me) return;
+    setJoiningId(loop.id);
+    const action = loop.joined ? "leave" : "join";
+    try {
+      await fetch(`${API}/loops/${loop.id}/${action}/`, { method: "POST", headers: authHeaders() });
+    } catch { }
+    onJoinLeave(loop.id, action);
+    setJoiningId(null);
+  };
+
+  if (trending.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 px-1">
+        <TrendingUp className="w-4 h-4 text-primary" />
+        <h3 className="font-semibold text-sm">Trending Loops</h3>
+      </div>
+      <div className="space-y-2">
+        {trending.map((loop, i) => (
+          <Card key={loop.id} className="glass border-0 p-3 cursor-pointer hover:shadow-sm transition-all hover:-translate-y-0.5"
+            onClick={() => onLoopClick(loop.id)}>
+            <div className="flex items-center gap-2.5">
+              <span className="text-xs font-bold text-muted-foreground w-4 shrink-0 text-center">{i + 1}</span>
+              <LoopAvatar loop={loop} size="sm" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold truncate">{loop.name}</p>
+                <p className="text-xs text-muted-foreground">{loop.members.toLocaleString()} members</p>
+              </div>
+              {loop.created_by_me ? (
+                <Badge className="text-xs gradient-bg text-primary-foreground border-0 shrink-0">Admin</Badge>
+              ) : loop.pending ? (
+                <span className="text-xs text-amber-500 shrink-0">Pending</span>
+              ) : (
+                <Button size="sm"
+                  variant={loop.joined ? "outline" : "default"}
+                  className={`text-xs h-7 px-2.5 shrink-0 ${loop.joined ? "border-red-300 text-red-500 hover:bg-red-50" : "gradient-bg text-primary-foreground border-0"}`}
+                  onClick={(e) => handleJoin(loop, e)}
+                  disabled={joiningId === loop.id}>
+                  {joiningId === loop.id ? <Loader2 className="w-3 h-3 animate-spin" /> : loop.joined ? "Leave" : "Join"}
+                </Button>
+              )}
+            </div>
+            {(loop.totalLikes > 0 || loop.totalComments > 0) && (
+              <div className="flex items-center gap-3 mt-1.5 ml-10 text-xs text-muted-foreground">
+                <span className="flex items-center gap-0.5"><Heart className="w-3 h-3" /> {loop.totalLikes}</span>
+                <span className="flex items-center gap-0.5"><MessageCircle className="w-3 h-3" /> {loop.totalComments}</span>
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function LoopsPage() {
@@ -909,11 +1204,8 @@ export default function LoopsPage() {
   const [loadingAllPosts, setLoadingAllPosts] = useState(true);
   const [loadingMyPosts, setLoadingMyPosts] = useState(true);
   const [requests, setRequests] = useState<JoinRequest[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [showNotifications, setShowNotifications] = useState(false);
   const [draft, setDraft] = useState("");
-  const [selectedLoopId, setSelectedLoopId] = useState<number | null>(null);
+  const router = useRouter();
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [posting, setPosting] = useState(false);
@@ -921,7 +1213,6 @@ export default function LoopsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingLoop, setEditingLoop] = useState<Loop | null>(null);
   const [deletingLoop, setDeletingLoop] = useState<Loop | null>(null);
-  const [loopDetailModal, setLoopDetailModal] = useState<Loop | null>(null);
   const [selectedMyLoop, setSelectedMyLoop] = useState<number | "all">("all");
   const [viewingLoopPosts, setViewingLoopPosts] = useState<Loop | null>(null);
   const [loopViewPosts, setLoopViewPosts] = useState<Post[]>([]);
@@ -941,7 +1232,7 @@ export default function LoopsPage() {
 
   const fetchLoops = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/loops/`, { headers: authHeaders() });
+      const res = await apiFetch(`${API}/loops/`);
       if (res.ok) {
         const data = await res.json();
         setLoops(data.map((l: Loop) => ({ ...l, color: TAG_COLORS[l.tag] || TAG_COLORS["Other"] })));
@@ -952,7 +1243,7 @@ export default function LoopsPage() {
 
   const fetchAllPosts = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/posts/`, { headers: authHeaders() });
+      const res = await apiFetch(`${API}/posts/`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) setAllPosts(data);
@@ -965,7 +1256,7 @@ export default function LoopsPage() {
     setLoadingMyPosts(true);
     try {
       const url = loopId ? `${API}/posts/mine/?loop_id=${loopId}` : `${API}/posts/mine/`;
-      const res = await fetch(url, { headers: authHeaders() });
+      const res = await apiFetch(url);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) setMyPosts(data);
@@ -978,7 +1269,7 @@ export default function LoopsPage() {
     setLoadingLoopPosts(true);
     setViewingLoopPosts(loop);
     try {
-      const res = await fetch(`${API}/loops/${loop.id}/posts/`, { headers: authHeaders() });
+      const res = await apiFetch(`${API}/loops/${loop.id}/posts/`);
       if (res.ok) {
         const data = await res.json();
         setLoopViewPosts(Array.isArray(data) ? data : []);
@@ -989,23 +1280,8 @@ export default function LoopsPage() {
 
   const fetchRequests = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/loops/requests/`, { headers: authHeaders() });
+      const res = await apiFetch(`${API}/loops/requests/`);
       if (res.ok) setRequests(await res.json());
-    } catch { }
-  }, []);
-
-  const fetchNotifications = useCallback(async (isInitial = false) => {
-    try {
-      const res = await fetch(`${API}/notifications/`, { headers: authHeaders() });
-      if (!res.ok) return;
-      const data: Notification[] = await res.json();
-      setNotifications(data);
-      if (isInitial) {
-        markAllSeen(data);
-        setUnreadCount(0);
-      } else {
-        setUnreadCount(countUnseen(data));
-      }
     } catch { }
   }, []);
 
@@ -1017,25 +1293,14 @@ export default function LoopsPage() {
         fetchAllPosts(),
         fetchMyPosts(),
         fetchRequests(),
-        fetchNotifications(true),
       ]);
     };
     init();
     const interval = setInterval(async () => {
       await fetchAllPosts();
-      await fetchNotifications(false);
     }, 15000);
     return () => clearInterval(interval);
-  }, [fetchLoops, fetchAllPosts, fetchMyPosts, fetchRequests, fetchNotifications]);
-
-  const handleOpenNotifications = () => {
-    const opening = !showNotifications;
-    setShowNotifications(opening);
-    if (opening) {
-      markAllSeen(notifications);
-      setUnreadCount(0);
-    }
-  };
+  }, [fetchLoops, fetchAllPosts, fetchMyPosts, fetchRequests]);
 
   const handleMyLoopFilter = (value: number | "all") => {
     setSelectedMyLoop(value);
@@ -1061,16 +1326,15 @@ export default function LoopsPage() {
     try {
       const formData = new FormData();
       formData.append("text", draft);
-      if (selectedLoopId) formData.append("loop_id", String(selectedLoopId));
       if (imageFile) formData.append("image", imageFile);
-      const res = await fetch(`${API}/posts/create/`, {
-        method: "POST", headers: authHeaders(), body: formData,
+      const res = await apiFetch(`${API}/posts/create/`, {
+        method: "POST", body: formData,
       });
       const data = await res.json();
       if (res.ok) {
         setAllPosts((prev) => [data, ...prev]);
         setMyPosts((prev) => [data, ...prev]);
-        setDraft(""); setImagePreview(null); setImageFile(null); setSelectedLoopId(null);
+        setDraft(""); setImagePreview(null); setImageFile(null);
       } else {
         setPostError(data.error || "Failed to post.");
       }
@@ -1090,8 +1354,7 @@ export default function LoopsPage() {
   };
 
   const handleLoopClick = (loopId: number) => {
-    const loop = loops.find((l) => l.id === loopId);
-    if (loop) setLoopDetailModal(loop);
+    router.push(`/loops/${loopId}`);
   };
 
   const updatePosts = (fn: (posts: Post[]) => Post[]) => {
@@ -1158,23 +1421,37 @@ export default function LoopsPage() {
 
   const handleApproveRequest = async (req: JoinRequest) => {
     try {
-      await fetch(`${API}/loops/requests/${req.id}/approve/`, { method: "POST", headers: authHeaders() });
+      await apiFetch(`${API}/loops/requests/${req.id}/approve/`, { method: "POST" });
     } catch { }
     setRequests((prev) => prev.filter((r) => r.id !== req.id));
     setLoops((prev) => prev.map((l) => l.id === req.loop_id ? { ...l, members: l.members + 1 } : l));
-    fetchNotifications(false);
   };
 
   const handleDenyRequest = async (req: JoinRequest) => {
     try {
-      await fetch(`${API}/loops/requests/${req.id}/deny/`, { method: "POST", headers: authHeaders() });
+      await apiFetch(`${API}/loops/requests/${req.id}/deny/`, { method: "POST" });
     } catch { }
     setRequests((prev) => prev.filter((r) => r.id !== req.id));
-    fetchNotifications(false);
   };
 
   const myJoinedLoops = loops.filter((l) => l.joined || l.created_by_me);
-  const recentLoops = myJoinedLoops.slice(0, 2);
+  const myLoopIds = useMemo(() => new Set(myJoinedLoops.map((l) => l.id)), [myJoinedLoops]);
+  const myLoopsByTag = useMemo(() => {
+    if (activeTag === "All") return myLoopIds;
+    const filtered = myJoinedLoops.filter((l) => l.tag === activeTag);
+    return new Set(filtered.map((l) => l.id));
+  }, [myJoinedLoops, myLoopIds, activeTag]);
+  const myLoopPosts = useMemo(
+    () => allPosts.filter((p) => p.loop_id != null && myLoopsByTag.has(p.loop_id)),
+    [allPosts, myLoopsByTag]
+  );
+  // Feed = generic posts (no loop) + public loop posts from loops user is NOT in
+  const feedPosts = useMemo(
+    () => allPosts.filter((p) => p.loop_id == null || (!myLoopIds.has(p.loop_id) && !p.loop_is_private)),
+    [allPosts, myLoopIds]
+  );
+  const LOOPS_CHIP_LIMIT = 6;
+  const filteredMyLoops = useMemo(() => myJoinedLoops.slice(0, LOOPS_CHIP_LIMIT), [myJoinedLoops]);
   const selectedLoopInfo = selectedMyLoop !== "all" ? loops.find((l) => l.id === selectedMyLoop) : null;
 
   const filteredLoops = loops.filter((l) => {
@@ -1199,72 +1476,31 @@ export default function LoopsPage() {
   if (!mounted) return null;
 
   return (
-    <AppShell>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Loops</h1>
-            <p className="text-sm text-muted-foreground">Small communities. Big momentum.</p>
-          </div>
-
-          {/* Notification bell */}
-          <div className="relative">
-            <button onClick={handleOpenNotifications}
-              className="relative p-2 rounded-xl glass hover:bg-accent transition-colors">
-              <Bell className="w-5 h-5" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center font-bold">
-                  {unreadCount > 9 ? "9+" : unreadCount}
-                </span>
-              )}
-            </button>
-            {showNotifications && (
-              <div className="absolute right-0 top-12 w-80 z-50">
-                <Card className="glass-strong border-0 p-3 space-y-2 max-h-80 overflow-y-auto shadow-lg">
-                  <div className="flex items-center justify-between px-1">
-                    <p className="text-sm font-semibold">Notifications</p>
-                    <button onClick={() => setShowNotifications(false)} className="text-muted-foreground hover:text-foreground">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  {notifications.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-4">No notifications yet</p>
-                  ) : (
-                    notifications.map((n) => (
-                      <div key={n.id} className="glass rounded-xl p-3 space-y-1">
-                        <div className="flex items-start gap-2">
-                          <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-semibold text-white ${n.type === "join_request" ? "bg-amber-500" : "bg-green-500"}`}>
-                            {n.user[0].toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs leading-relaxed">{n.message}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">{n.time}</p>
-                          </div>
-                        </div>
-                        {n.type === "join_request" && n.membership_id && (
-                          <div className="flex gap-2 pl-9">
-                            <button onClick={() => { handleApproveRequest({ id: n.membership_id!, loop_id: n.loop_id, loop_name: n.loop_name, user: n.user, handle: n.handle, requested_at: n.time }); setShowNotifications(false); }}
-                              className="text-xs text-primary font-medium hover:opacity-70">Approve</button>
-                            <span className="text-xs text-muted-foreground">·</span>
-                            <button onClick={() => { handleDenyRequest({ id: n.membership_id!, loop_id: n.loop_id, loop_name: n.loop_name, user: n.user, handle: n.handle, requested_at: n.time }); setShowNotifications(false); }}
-                              className="text-xs text-red-500 font-medium hover:opacity-70">Deny</button>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </Card>
-              </div>
-            )}
-          </div>
+    <AppShell headerLeft={
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight leading-none">Loops</h1>
+        <p className="text-xs text-muted-foreground mt-0.5">Small communities. Big momentum.</p>
+      </div>
+    }>
+      <div className="space-y-4">
+        {/* Search + Create */}
+        <div className="flex gap-2">
+          <LoopSearchBar
+            loops={loops}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            onNavigateToLoop={handleLoopClick}
+          />
+          <Button className="gradient-bg border-0 shrink-0" onClick={() => setShowCreateModal(true)}>
+            <Plus className="w-4 h-4 mr-1" />Create
+          </Button>
         </div>
 
-        <Tabs defaultValue="feed">
+        <Tabs defaultValue="feed" onValueChange={() => setActiveTag("All")}>
           <TabsList className="glass">
             <TabsTrigger value="feed">Feed</TabsTrigger>
             <TabsTrigger value="myloops">My Loops</TabsTrigger>
             <TabsTrigger value="explore">Explore</TabsTrigger>
-            <TabsTrigger value="challenges">Challenges</TabsTrigger>
             <TabsTrigger value="requests" className="relative">
               Requests
               {requests.length > 0 && (
@@ -1276,201 +1512,159 @@ export default function LoopsPage() {
           </TabsList>
 
           {/* ── Feed Tab ── */}
-          <TabsContent value="feed" className="space-y-4 mt-6 max-w-2xl">
-            <div>
-              <h2 className="font-semibold text-lg">All Posts</h2>
-              <p className="text-xs text-muted-foreground">Public loop posts and your private loop posts</p>
-            </div>
-            <Card className="glass border-0 p-4">
-              <div className="flex gap-3">
-                <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
-                  {initials}
-                </div>
-                <div className="flex-1">
-                  <textarea value={draft} onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && handlePost()}
-                    placeholder="Share your progress..."
-                    className="w-full bg-transparent text-sm outline-none resize-none min-h-[60px]" maxLength={500} />
-                  {myJoinedLoops.length > 0 && (
-                    <div className="mt-2">
-                      <select value={selectedLoopId ?? ""}
-                        onChange={(e) => setSelectedLoopId(e.target.value ? Number(e.target.value) : null)}
-                        className="text-xs bg-muted rounded-lg px-3 py-1.5 outline-none text-muted-foreground w-full">
-                        <option value="">🌐 No loop (public post)</option>
-                        {myJoinedLoops.map((l) => (
-                          <option key={l.id} value={l.id}>{l.is_private ? "🔒 " : "🌐 "}{l.name}</option>
-                        ))}
-                      </select>
+          <TabsContent value="feed" className="mt-6">
+            <ActivityTicker posts={feedPosts} />
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
+              {/* Left: Composer + Posts */}
+              <div className="space-y-4 min-w-0">
+                <Card className="glass border-0 p-5">
+                  <div className="flex gap-3">
+                    <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
+                      {initials}
                     </div>
-                  )}
-                  {imagePreview && (
-                    <div className="relative mt-2 rounded-xl overflow-hidden inline-block">
-                      <img src={imagePreview} alt="Preview" className="max-h-48 max-w-full rounded-xl object-cover" />
-                      <button onClick={() => { setImagePreview(null); setImageFile(null); }}
-                        className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="flex-1">
+                      <textarea value={draft} onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && handlePost()}
+                        placeholder="Share your progress with the community..."
+                        className="w-full bg-transparent text-sm outline-none resize-none min-h-[72px] placeholder:text-muted-foreground/60" maxLength={500} />
+                      {imagePreview && (
+                        <div className="relative mt-2 rounded-xl overflow-hidden inline-block">
+                          <img src={imagePreview} alt="Preview" className="max-h-48 max-w-full rounded-xl object-cover" />
+                          <button onClick={() => { setImagePreview(null); setImageFile(null); }}
+                            className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                      {postError && <p className="text-xs text-red-500 mt-2">{postError}</p>}
+                      <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+                          <button onClick={() => { fileInputRef.current?.click(); if (!draft) setDraft("Just completed a workout! 💪 "); }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all">
+                            <Camera className="w-3.5 h-3.5" /> Post Workout Photo
+                          </button>
+                          <button onClick={() => setDraft((d) => d || "Sharing today's meal 🍽️ ")}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all">
+                            <Utensils className="w-3.5 h-3.5" /> Share a Meal
+                          </button>
+                          <button onClick={() => setDraft((d) => d || "Just logged a run! 🏃 ")}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all">
+                            <Zap className="w-3.5 h-3.5" /> Log a Run
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs text-muted-foreground">{draft.length}/500</span>
+                          <Button size="sm" className="gradient-bg border-0" onClick={handlePost}
+                            disabled={posting || (!draft.trim() && !imagePreview)}>
+                            {posting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                            {posting ? "Posting..." : "Post"}
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                  )}
-                  {postError && <p className="text-xs text-red-500 mt-2">{postError}</p>}
-                  <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center gap-2">
-                      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
-                      <button onClick={() => fileInputRef.current?.click()}
-                        className="text-muted-foreground hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-accent">
-                        <ImageIcon className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs text-muted-foreground">{draft.length}/500</span>
-                    </div>
-                    <Button size="sm" className="gradient-bg border-0" onClick={handlePost}
-                      disabled={posting || (!draft.trim() && !imagePreview)}>
-                      {posting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
-                      {posting ? "Posting..." : "Post"}
-                    </Button>
                   </div>
-                </div>
+                </Card>
+                {loadingAllPosts ? (
+                  <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+                ) : feedPosts.length === 0 ? (
+                  <Card className="glass border-0 p-8 text-center"><p className="text-sm text-muted-foreground">No public posts yet. Join a loop or be the first to share!</p></Card>
+                ) : (
+                  <div className="space-y-4">
+                    {feedPosts.map((p) => <PostCard key={p.id} post={p} {...postCardProps} />)}
+                  </div>
+                )}
               </div>
-            </Card>
-            {loadingAllPosts ? (
-              <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
-            ) : allPosts.length === 0 ? (
-              <Card className="glass border-0 p-8 text-center"><p className="text-sm text-muted-foreground">No posts yet. Be the first to share your progress!</p></Card>
-            ) : (
-              allPosts.map((p) => <PostCard key={p.id} post={p} {...postCardProps} />)
-            )}
+              {/* Right: Trending Loops + Join Requests */}
+              <div className="space-y-6">
+                <TrendingLoopsSidebar
+                  loops={loops}
+                  posts={allPosts}
+                  onLoopClick={handleLoopClick}
+                  onJoinLeave={handleJoinLeave}
+                />
+                <JoinRequestsSidebar
+                  requests={requests}
+                  onApprove={handleApproveRequest}
+                  onDeny={handleDenyRequest}
+                />
+              </div>
+            </div>
           </TabsContent>
 
           {/* ── My Loops Tab ── */}
-          <TabsContent value="myloops" className="space-y-4 mt-6 max-w-2xl">
+          <TabsContent value="myloops" className="mt-6">
             {myJoinedLoops.length === 0 ? (
-              <Card className="glass border-0 p-8 text-center">
+              <Card className="glass border-0 p-10 text-center">
                 <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
                   <Users className="w-6 h-6 text-muted-foreground" />
                 </div>
                 <p className="font-medium text-sm">You haven&apos;t joined any loops yet</p>
                 <p className="text-xs text-muted-foreground mt-1">Go to Explore to find and join loops.</p>
               </Card>
-            ) : viewingLoopPosts ? (
-              <>
-                <button onClick={() => setViewingLoopPosts(null)}
-                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                  <ArrowLeft className="w-4 h-4" /> Back to My Loops
-                </button>
-                <Card className="glass border-0 p-4">
-                  <div className="flex items-center gap-3">
-                    <LoopAvatar loop={viewingLoopPosts} size="md" />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-sm">{viewingLoopPosts.name}</span>
-                        <Badge variant="secondary" className="text-xs flex items-center gap-1">
-                          {viewingLoopPosts.is_private ? <><Lock className="w-2.5 h-2.5" />Private</> : <><Globe className="w-2.5 h-2.5" />Public</>}
-                        </Badge>
-                        <Badge variant="secondary" className="text-xs">{viewingLoopPosts.tag}</Badge>
-                      </div>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
-                        <span className="flex items-center gap-1"><Users className="w-3 h-3" />{viewingLoopPosts.members.toLocaleString()} members</span>
-                        {viewingLoopPosts.joined_at && (
-                          <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />Member since {getMemberSince(viewingLoopPosts.joined_at)}</span>
-                        )}
-                        {viewingLoopPosts.created_by_me && <Badge className="text-xs gradient-bg text-primary-foreground border-0">Admin</Badge>}
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-                <h3 className="text-sm font-semibold text-muted-foreground">
-                  All posts in {viewingLoopPosts.name} ({loopViewPosts.length})
-                </h3>
-                {loadingLoopPosts ? (
-                  <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
-                ) : loopViewPosts.length === 0 ? (
-                  <Card className="glass border-0 p-8 text-center"><p className="text-sm text-muted-foreground">No posts in this loop yet.</p></Card>
-                ) : (
-                  <div className="space-y-3">
-                    {loopViewPosts.map((p) => <PostCard key={p.id} post={p} {...postCardProps} />)}
-                  </div>
-                )}
-              </>
             ) : (
               <>
-                <div className="relative">
-                  <select value={selectedMyLoop}
-                    onChange={(e) => handleMyLoopFilter(e.target.value === "all" ? "all" : Number(e.target.value))}
-                    className="w-full glass border border-border rounded-xl px-4 py-3 text-sm outline-none appearance-none cursor-pointer pr-10">
-                    <option value="all">All my posts (across all loops)</option>
-                    {myJoinedLoops.map((l) => (
-                      <option key={l.id} value={l.id}>{l.is_private ? "🔒 " : "🌐 "}{l.name}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                {/* Category filter */}
+                <div className="flex gap-2 flex-wrap">
+                  {ALL_TAGS.map((t) => (
+                    <button key={t} onClick={() => setActiveTag(t)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${activeTag === t ? "gradient-bg text-primary-foreground border-transparent" : "glass border-border text-muted-foreground hover:border-primary/40"}`}>
+                      {t}
+                    </button>
+                  ))}
                 </div>
-
-                {selectedLoopInfo ? (
-                  <Card className="glass border-0 p-4">
-                    <div className="flex items-center gap-3">
-                      <LoopAvatar loop={selectedLoopInfo} size="md" />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-sm">{selectedLoopInfo.name}</span>
-                          <Badge variant="secondary" className="text-xs flex items-center gap-1">
-                            {selectedLoopInfo.is_private ? <><Lock className="w-2.5 h-2.5" />Private</> : <><Globe className="w-2.5 h-2.5" />Public</>}
-                          </Badge>
-                          <Badge variant="secondary" className="text-xs">{selectedLoopInfo.tag}</Badge>
-                        </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
-                          <span className="flex items-center gap-1"><Users className="w-3 h-3" />{selectedLoopInfo.members.toLocaleString()} members</span>
-                          {selectedLoopInfo.joined_at && (
-                            <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />Member since {getMemberSince(selectedLoopInfo.joined_at)}</span>
-                          )}
-                          {selectedLoopInfo.created_by_me && <Badge className="text-xs gradient-bg text-primary-foreground border-0">Admin</Badge>}
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3">
-                    {recentLoops.map((l) => (
-                      <Card key={l.id} className="glass border-0 p-3 cursor-pointer hover:shadow-sm transition-all"
-                        onClick={() => fetchLoopPosts(l)}>
-                        <div className="flex items-center gap-2 mb-1">
+                <ActivityTicker posts={myLoopPosts} />
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
+                  {/* Left: posts from my loops */}
+                  <div className="space-y-4 min-w-0">
+                    {/* My loop chips */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold text-muted-foreground shrink-0">My loops:</span>
+                      {filteredMyLoops.map((l) => (
+                        <button key={l.id} onClick={() => handleLoopClick(l.id)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 glass rounded-full text-xs hover:bg-accent transition-all border border-border/50">
                           <LoopAvatar loop={l} size="sm" />
-                          <span className="text-xs font-semibold truncate flex-1">{l.name}</span>
-                          {l.is_private ? <Lock className="w-3 h-3 text-muted-foreground flex-shrink-0" /> : <Globe className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
-                        </div>
-                        <div className="text-xs text-muted-foreground">{l.members.toLocaleString()} members</div>
-                        {l.joined_at && !l.created_by_me && <div className="text-xs text-primary/70 mt-0.5">Since {getMemberSince(l.joined_at)}</div>}
-                        {l.created_by_me && <div className="text-xs text-primary mt-0.5">Admin</div>}
-                        <div className="text-xs text-primary mt-1 font-medium">View posts →</div>
+                          <span className="font-medium">{l.name}</span>
+                          {l.is_private && <Lock className="w-2.5 h-2.5 text-muted-foreground" />}
+                          {l.created_by_me && <Badge className="text-[10px] h-4 px-1 gradient-bg text-primary-foreground border-0">Admin</Badge>}
+                        </button>
+                      ))}
+                      {myJoinedLoops.length > LOOPS_CHIP_LIMIT && (
+                        <button onClick={() => router.push("/loops/my-loops")}
+                          className="text-xs text-primary hover:opacity-70 transition px-2.5 py-1 glass rounded-full border border-border/50 font-medium">
+                          +{myJoinedLoops.length - LOOPS_CHIP_LIMIT} more
+                        </button>
+                      )}
+                    </div>
+                    {/* Posts */}
+                    {loadingAllPosts ? (
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : myLoopPosts.length === 0 ? (
+                      <Card className="glass border-0 p-8 text-center">
+                        <p className="text-sm text-muted-foreground">No posts in your loops yet. Click a loop above to explore it!</p>
                       </Card>
-                    ))}
-                    {myJoinedLoops.length > 2 && (
-                      <div className="col-span-2 text-center">
-                        <p className="text-xs text-muted-foreground">+{myJoinedLoops.length - 2} more loops — use the dropdown above to switch</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {myLoopPosts.map((p) => <PostCard key={p.id} post={p} {...postCardProps} />)}
                       </div>
                     )}
                   </div>
-                )}
-
-                <div>
-                  <h3 className="text-sm font-semibold mb-3 text-muted-foreground">
-                    {selectedMyLoop === "all"
-                      ? `Your posts across all loops (${myPosts.length})`
-                      : `All posts in ${selectedLoopInfo?.name} (${myPosts.length})`}
-                  </h3>
-                  {loadingMyPosts ? (
-                    <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
-                  ) : myPosts.length === 0 ? (
-                    <Card className="glass border-0 p-8 text-center">
-                      <p className="text-sm text-muted-foreground">
-                        {selectedMyLoop === "all"
-                          ? "You haven't made any posts yet. Go to Feed to share your progress!"
-                          : `No posts in ${selectedLoopInfo?.name} yet.`}
-                      </p>
-                    </Card>
-                  ) : (
-                    <div className="space-y-3">
-                      {myPosts.map((p) => <PostCard key={p.id} post={p} {...postCardProps} />)}
-                    </div>
-                  )}
+                  {/* Right: same sidebar */}
+                  <div className="space-y-6">
+                    <TrendingLoopsSidebar
+                      loops={loops}
+                      posts={allPosts}
+                      onLoopClick={handleLoopClick}
+                      onJoinLeave={handleJoinLeave}
+                    />
+                    <JoinRequestsSidebar
+                      requests={requests}
+                      onApprove={handleApproveRequest}
+                      onDeny={handleDenyRequest}
+                    />
+                  </div>
                 </div>
               </>
             )}
@@ -1478,29 +1672,6 @@ export default function LoopsPage() {
 
           {/* ── Explore Tab ── */}
           <TabsContent value="explore" className="space-y-4 mt-6">
-            <div className="flex gap-2">
-              <div className="flex-1 glass rounded-xl flex items-center gap-2 px-4">
-                <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search loops..." className="flex-1 bg-transparent py-3 text-sm outline-none" />
-                {searchQuery && (
-                  <button onClick={() => setSearchQuery("")} className="text-muted-foreground hover:text-foreground">
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-              <Button className="gradient-bg border-0" onClick={() => setShowCreateModal(true)}>
-                <Plus className="w-4 h-4 mr-1" />Create
-              </Button>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              {ALL_TAGS.map((t) => (
-                <button key={t} onClick={() => setActiveTag(t)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${activeTag === t ? "gradient-bg text-primary-foreground border-transparent" : "glass border-border text-muted-foreground hover:border-primary/40"}`}>
-                  {t}
-                </button>
-              ))}
-            </div>
             {loadingLoops ? (
               <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
             ) : filteredLoops.length === 0 ? (
@@ -1515,32 +1686,6 @@ export default function LoopsPage() {
                 ))}
               </div>
             )}
-          </TabsContent>
-
-          {/* ── Challenges Tab ── */}
-          <TabsContent value="challenges" className="space-y-4 mt-6">
-            <div className="grid md:grid-cols-2 gap-4">
-              {challengesData.map((c) => (
-                <Card key={c.name} className="glass border-0 p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <Badge variant="secondary" className="text-xs mb-2">{c.loop}</Badge>
-                      <h3 className="font-semibold">{c.name}</h3>
-                      <p className="text-xs text-muted-foreground mt-0.5">{c.goal}</p>
-                    </div>
-                    <Target className="w-5 h-5" style={{ color: c.color }} />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Group progress</span>
-                      <span className="font-semibold">{c.progress}%</span>
-                    </div>
-                    <Progress value={c.progress} />
-                    <div className="text-xs text-muted-foreground">{c.participants} participants</div>
-                  </div>
-                </Card>
-              ))}
-            </div>
           </TabsContent>
 
           {/* ── Requests Tab ── */}
@@ -1602,25 +1747,6 @@ export default function LoopsPage() {
           setLoops((prev) => prev.filter((l) => l.id !== deletingLoop.id));
           setDeletingLoop(null);
         }} />
-      )}
-      {loopDetailModal && (
-        <LoopDetailModal
-          loop={loopDetailModal}
-          onClose={() => setLoopDetailModal(null)}
-          onViewLoop={(loop) => {
-            setViewingLoopPosts(null);
-            fetchLoopPosts(loop);
-          }}
-          onJoin={(id, action) => {
-            handleJoinLeave(id, action);
-            setLoopDetailModal((prev) => prev ? {
-              ...prev,
-              joined: action === "join" && !prev.is_private,
-              pending: action === "join" && prev.is_private,
-              members: action === "join" && !prev.is_private ? prev.members + 1 : action === "leave" ? prev.members - 1 : prev.members,
-            } : null);
-          }}
-        />
       )}
     </AppShell>
   );

@@ -463,12 +463,13 @@ export default function CoachingPage() {
   const periods = ["Morning", "Afternoon", "Evening"];
 
   return (
-    <AppShell>
+    <AppShell headerLeft={
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight leading-none">Coaching &amp; Plans</h1>
+        <p className="text-xs text-muted-foreground mt-0.5">Upgrade your journey or work 1-on-1 with a pro.</p>
+      </div>
+    }>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Coaching & Plans</h1>
-          <p className="text-sm text-muted-foreground">Upgrade your journey or work 1-on-1 with a pro.</p>
-        </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="glass">

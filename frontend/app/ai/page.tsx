@@ -246,17 +246,18 @@ export default function AIPage() {
   };
 
   return (
-    <AppShell>
-      <div className="space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl gradient-bg flex items-center justify-center shadow-[var(--shadow-glow)]">
-            <Sparkles className="w-6 h-6 text-primary-foreground" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Momentm AI</h1>
-            <p className="text-sm text-muted-foreground">Personalized wellness suggestions tuned to your patterns.</p>
-          </div>
+    <AppShell headerLeft={
+      <div className="flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-xl gradient-bg flex items-center justify-center shadow-[var(--shadow-glow)] flex-shrink-0">
+          <Sparkles className="w-4 h-4 text-primary-foreground" />
         </div>
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight leading-none">Momentm AI</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Personalized wellness suggestions tuned to your patterns.</p>
+        </div>
+      </div>
+    }>
+      <div className="space-y-6">
 
         <Card className="glass-strong border-0 p-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">

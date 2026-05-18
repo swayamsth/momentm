@@ -38,6 +38,7 @@ urlpatterns = [
     path('loops/<int:loop_id>/edit/', views.edit_loop_view, name='edit-loop'),
     path('loops/<int:loop_id>/delete/', views.delete_loop_view, name='delete-loop'),
     path('loops/<int:loop_id>/upload-image/', views.upload_loop_image_view, name='upload-loop-image'),
+    path('loops/<int:loop_id>/upload-cover/', views.upload_loop_cover_view, name='upload-loop-cover'),
     # Notifications
     path('notifications/', views.get_notifications_view, name='notifications'),
     # Activities
@@ -61,4 +62,17 @@ urlpatterns = [
     path('rewards/', views.rewards_view, name='rewards'),
     path('rewards/<int:reward_id>/claim/', views.claim_reward_view, name='claim-reward'),
     path('rewards/claimed/', views.claimed_rewards_view, name='claimed-rewards'),
+    # Profile
+    path('profile/', views.profile_view, name='profile'),
+    path('users/<int:user_id>/', views.public_profile_view, name='public-profile'),
+    path('users/<int:user_id>/follow/', views.follow_user_view, name='follow-user'),
+    path('profile/upload-picture/', views.upload_profile_picture_view, name='upload-profile-picture'),
+    path('profile/upload-cover/', views.upload_cover_photo_view, name='upload-cover-photo'),
+    path('profile/suggestions/', views.profile_suggestions_view, name='profile-suggestions'),
+    path('profile/delete/', views.delete_account_view, name='delete-account'),
+    # Follow requests
+    path('follow-requests/<int:follow_id>/approve/', views.approve_follow_view, name='approve-follow'),
+    path('follow-requests/<int:follow_id>/deny/', views.deny_follow_view, name='deny-follow'),
+    # Loop members
+    path('loops/<int:loop_id>/members/', views.loop_members_view, name='loop-members'),
 ]

@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import SignupSerializer
-from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership, Reward, RewardCode, ClaimedReward, SleepLog, NutritionLog
+from .models import OTPVerification, PasswordResetToken, UserProfile, Post, Comment, ActivityLog, Loop, LoopMembership, Reward, RewardCode, ClaimedReward, Follow, SleepLog, NutritionLog
 import uuid
 import os
 
@@ -325,6 +325,7 @@ def serialize_loop(loop, request_user=None):
         'is_private': loop.is_private,
         'members': member_count,
         'image_url': loop.image_url or None,
+        'cover_url': loop.cover_url or None,
         'created_by_me': loop.created_by == request_user if request_user and request_user.is_authenticated else False,
         'joined': membership.status == 'approved' if membership else loop.created_by == request_user,
         'pending': membership.status == 'pending' if membership else False,
@@ -832,6 +833,28 @@ def upload_loop_image_view(request, loop_id):
     return Response({'image_url': image_url, 'message': 'Loop image updated.'})
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_loop_cover_view(request, loop_id):
+    try:
+        loop = Loop.objects.get(id=loop_id, created_by=request.user)
+    except Loop.DoesNotExist:
+        return Response({'error': 'Loop not found or not authorized.'}, status=status.HTTP_404_NOT_FOUND)
+
+    image = request.FILES.get('image')
+    if not image:
+        return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    cover_url = upload_image_to_supabase(image, folder="loops")
+    if not cover_url:
+        return Response({'error': 'Cover upload failed.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    loop.cover_url = cover_url
+    loop.save()
+
+    return Response({'cover_url': cover_url, 'message': 'Cover image updated.'})
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_join_requests_view(request):
@@ -916,6 +939,44 @@ def get_notifications_view(request):
             'user': full_name,
             'handle': member.user.email.split('@')[0],
             'time': member.joined_at.strftime('%b %d, %H:%M'),
+            'read': False,
+        })
+
+    # Follow request notifications (people wanting to follow current user on private account)
+    pending_follows = Follow.objects.filter(
+        following=request.user, status='pending'
+    ).select_related('follower').order_by('-created_at')[:10]
+    for f in pending_follows:
+        full_name = f"{f.follower.first_name} {f.follower.last_name}".strip() or f.follower.email
+        notifications.append({
+            'id': f'follow_{f.id}',
+            'type': 'follow_request',
+            'message': f'{full_name} wants to follow you',
+            'user': full_name,
+            'handle': f.follower.email.split('@')[0],
+            'follower_id': f.follower.id,
+            'follow_id': f.id,
+            'time': f.created_at.strftime('%b %d, %H:%M'),
+            'read': False,
+        })
+
+    # New followers (accepted follows in the last 7 days)
+    from django.utils import timezone
+    import datetime
+    week_ago = timezone.now() - datetime.timedelta(days=7)
+    new_followers = Follow.objects.filter(
+        following=request.user, status='accepted', created_at__gte=week_ago
+    ).select_related('follower').order_by('-created_at')[:10]
+    for f in new_followers:
+        full_name = f"{f.follower.first_name} {f.follower.last_name}".strip() or f.follower.email
+        notifications.append({
+            'id': f'newfollower_{f.id}',
+            'type': 'new_follower',
+            'message': f'{full_name} started following you',
+            'user': full_name,
+            'handle': f.follower.email.split('@')[0],
+            'follower_id': f.follower.id,
+            'time': f.created_at.strftime('%b %d, %H:%M'),
             'read': False,
         })
 
@@ -1599,3 +1660,305 @@ def claimed_rewards_view(request):
         'claimed_at': c.claimed_at.strftime('%b %d, %Y'),
         'expires_at': c.expires_at.strftime('%b %d, %Y') if c.expires_at else None,
     } for c in claims])
+
+
+# ─── Profile ──────────────────────────────────────────────────────────────────
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def profile_view(request):
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        post_count = Post.objects.filter(user=request.user).count()
+        loop_count = len(get_user_loop_ids(request.user))
+        public_post_count = Post.objects.filter(user=request.user, loop__isnull=True).count()
+        followers_count = Follow.objects.filter(following=request.user, status='accepted').count()
+        following_count = Follow.objects.filter(follower=request.user, status='accepted').count()
+        return Response({
+            'first_name': request.user.first_name,
+            'last_name': request.user.last_name,
+            'email': request.user.email,
+            'bio': profile.bio,
+            'privacy': profile.privacy,
+            'profile_picture_url': profile.profile_picture_url,
+            'cover_photo_url': profile.cover_photo_url,
+            'post_count': post_count,
+            'loop_count': loop_count,
+            'public_post_count': public_post_count,
+            'followers_count': followers_count,
+            'following_count': following_count,
+        })
+
+    # PATCH
+    first_name = request.data.get('first_name', request.user.first_name)
+    last_name = request.data.get('last_name', request.user.last_name)
+    bio = request.data.get('bio', profile.bio)
+    privacy = request.data.get('privacy', profile.privacy)
+
+    if privacy not in ['public', 'private', 'restricted']:
+        return Response({'error': 'Invalid privacy value.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    request.user.first_name = first_name
+    request.user.last_name = last_name
+    request.user.save()
+    profile.bio = bio
+    profile.privacy = privacy
+    profile.save()
+
+    return Response({'message': 'Profile updated.', 'privacy': profile.privacy})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_profile_picture_view(request):
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    image = request.FILES.get('image')
+    if not image:
+        return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    url = upload_image_to_supabase(image, folder="profiles")
+    if not url:
+        return Response({'error': 'Upload failed.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    profile.profile_picture_url = url
+    profile.save()
+    return Response({'profile_picture_url': url})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_cover_photo_view(request):
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    image = request.FILES.get('image')
+    if not image:
+        return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    url = upload_image_to_supabase(image, folder="profiles")
+    if not url:
+        return Response({'error': 'Upload failed.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    profile.cover_photo_url = url
+    profile.save()
+    return Response({'cover_photo_url': url})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def profile_suggestions_view(request):
+    user_loop_ids = get_user_loop_ids(request.user)
+    member_ids = set(
+        LoopMembership.objects.filter(loop_id__in=user_loop_ids, status='approved')
+        .exclude(user=request.user).values_list('user_id', flat=True)
+    )
+    creator_ids = set(
+        Loop.objects.filter(id__in=user_loop_ids)
+        .exclude(created_by=request.user).values_list('created_by_id', flat=True)
+    )
+    all_ids = list(member_ids | creator_ids)[:8]
+    users = User.objects.filter(id__in=all_ids).select_related('userprofile')
+
+    data = []
+    for u in users:
+        try:
+            pic = u.userprofile.profile_picture_url
+        except Exception:
+            pic = None
+        name = f"{u.first_name} {u.last_name}".strip() or u.email.split('@')[0]
+        data.append({
+            'id': u.id,
+            'name': name,
+            'handle': u.email.split('@')[0],
+            'profile_picture_url': pic,
+        })
+    return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def public_profile_view(request, user_id):
+    try:
+        target_user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=404)
+
+    try:
+        profile = target_user.userprofile
+        pic = profile.profile_picture_url
+        cover = profile.cover_photo_url
+        bio = profile.bio or ""
+    except Exception:
+        pic = None
+        cover = None
+        bio = ""
+
+    name = f"{target_user.first_name} {target_user.last_name}".strip() or target_user.email.split('@')[0]
+    handle = target_user.email.split('@')[0]
+
+    try:
+        target_privacy = target_user.userprofile.privacy
+    except Exception:
+        target_privacy = 'public'
+
+    follow_obj = Follow.objects.filter(follower=request.user, following=target_user).first()
+    is_following = follow_obj is not None and follow_obj.status == 'accepted'
+    follow_status = follow_obj.status if follow_obj else None
+
+    can_see_posts = (
+        target_privacy == 'public'
+        or target_user == request.user
+        or is_following
+    )
+
+    posts_data = []
+    if can_see_posts:
+        posts_qs = Post.objects.filter(user=target_user, loop__isnull=True).order_by('-created_at')[:10]
+        for p in posts_qs:
+            posts_data.append({
+                'id': p.id,
+                'text': p.text,
+                'image': p.image_url,
+                'time': p.created_at.strftime("%b %d, %H:%M"),
+                'likes': p.likes.count(),
+                'comments': p.post_comments.count(),
+            })
+
+    my_loop_ids = set(get_user_loop_ids(request.user))
+    their_loop_ids = set(get_user_loop_ids(target_user))
+    mutual_ids = my_loop_ids & their_loop_ids
+    mutual_loops_qs = Loop.objects.filter(id__in=mutual_ids)
+    mutual_data = [
+        {
+            'id': l.id,
+            'name': l.name,
+            'tag': l.tag,
+            'members': l.memberships.filter(status='approved').count(),
+            'image_url': l.image_url,
+        }
+        for l in mutual_loops_qs
+    ]
+
+    followers_count = Follow.objects.filter(following=target_user, status='accepted').count()
+    following_count = Follow.objects.filter(follower=target_user, status='accepted').count()
+
+    return Response({
+        'id': target_user.id,
+        'name': name,
+        'handle': handle,
+        'bio': bio,
+        'profile_picture_url': pic,
+        'cover_photo_url': cover,
+        'is_private': target_privacy == 'private',
+        'post_count': Post.objects.filter(user=target_user, loop__isnull=True).count(),
+        'followers_count': followers_count,
+        'following_count': following_count,
+        'is_following': is_following,
+        'follow_status': follow_status,
+        'can_see_posts': can_see_posts,
+        'posts': posts_data,
+        'mutual_loops': mutual_data,
+    })
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_account_view(request):
+    user = request.user
+    try:
+        refresh = request.data.get('refresh')
+        if refresh:
+            from rest_framework_simplejwt.tokens import RefreshToken
+            token = RefreshToken(refresh)
+            token.blacklist()
+    except Exception:
+        pass
+    user.delete()
+    return Response({'message': 'Account deleted.'})
+
+
+# ─── Follow ───────────────────────────────────────────────────────────────────
+
+@api_view(['POST', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def follow_user_view(request, user_id):
+    try:
+        target = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=404)
+
+    if target == request.user:
+        return Response({'error': 'Cannot follow yourself'}, status=400)
+
+    if request.method == 'POST':
+        existing = Follow.objects.filter(follower=request.user, following=target).first()
+        if existing:
+            return Response({'status': existing.status, 'is_following': existing.status == 'accepted'})
+
+        try:
+            target_privacy = target.userprofile.privacy
+        except Exception:
+            target_privacy = 'public'
+
+        follow_status = 'pending' if target_privacy == 'private' else 'accepted'
+        Follow.objects.create(follower=request.user, following=target, status=follow_status)
+        return Response({'status': follow_status, 'is_following': follow_status == 'accepted'})
+
+    # DELETE — unfollow
+    Follow.objects.filter(follower=request.user, following=target).delete()
+    return Response({'status': None, 'is_following': False})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def approve_follow_view(request, follow_id):
+    try:
+        follow = Follow.objects.get(id=follow_id, following=request.user, status='pending')
+    except Follow.DoesNotExist:
+        return Response({'error': 'Follow request not found'}, status=404)
+    follow.status = 'accepted'
+    follow.save()
+    return Response({'message': 'Follow request approved.'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def deny_follow_view(request, follow_id):
+    try:
+        follow = Follow.objects.get(id=follow_id, following=request.user, status='pending')
+    except Follow.DoesNotExist:
+        return Response({'error': 'Follow request not found'}, status=404)
+    follow.delete()
+    return Response({'message': 'Follow request denied.'})
+
+
+# ─── Loop Members ─────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def loop_members_view(request, loop_id):
+    try:
+        loop = Loop.objects.get(id=loop_id)
+    except Loop.DoesNotExist:
+        return Response({'error': 'Loop not found'}, status=404)
+
+    memberships = LoopMembership.objects.filter(
+        loop=loop, status='approved'
+    ).select_related('user', 'user__userprofile').order_by('joined_at')
+
+    members = []
+    for m in memberships:
+        try:
+            pic = m.user.userprofile.profile_picture_url
+        except Exception:
+            pic = None
+        full_name = f"{m.user.first_name} {m.user.last_name}".strip() or m.user.email.split('@')[0]
+        members.append({
+            'id': m.user.id,
+            'name': full_name,
+            'handle': m.user.email.split('@')[0],
+            'profile_picture_url': pic,
+            'joined_at': m.joined_at.strftime('%b %Y'),
+            'is_creator': loop.created_by_id == m.user.id,
+        })
+
+    return Response({'members': members, 'total': len(members)})

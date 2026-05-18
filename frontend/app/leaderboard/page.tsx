@@ -333,13 +333,14 @@ export default function LeaderboardPage() {
   const byType = (type: string) => rewards.filter(r => r.type === type);
 
   return (
-    <AppShell>
+    <AppShell headerLeft={
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight leading-none">Leaderboard</h1>
+        <p className="text-xs text-muted-foreground mt-0.5">Streaks. Points. Bragging rights.</p>
+      </div>
+    }>
       <div className="space-y-6">
-        <div className="flex items-end justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Leaderboard</h1>
-            <p className="text-sm text-muted-foreground">Streaks. Points. Bragging rights.</p>
-          </div>
+        <div className="flex justify-end">
           <Dialog open={storeOpen} onOpenChange={setStoreOpen}>
             <DialogTrigger asChild>
               <Button className="gradient-bg"><Award className="w-4 h-4 mr-1" />Rewards Store</Button>
@@ -390,6 +391,7 @@ export default function LeaderboardPage() {
         </div>
 
         {loadingBoard ? (
+
           <div className="space-y-2">
             {[...Array(5)].map((_, i) => <div key={i} className="glass rounded-xl p-4 h-16 animate-pulse" />)}
           </div>
