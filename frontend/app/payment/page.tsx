@@ -27,9 +27,6 @@ const PLANS: Record<string, { name: string; price: number; features: string[] }>
   },
 };
 
-function genTxId() {
-  return "TXN-" + Math.random().toString(36).substring(2, 10).toUpperCase();
-}
 
 function loadUser() {
   try {
@@ -96,24 +93,36 @@ function CheckoutForm({ plan, planKey }: { plan: typeof PLANS[string]; planKey: 
       }
 
       if (paymentIntent?.status === "succeeded") {
-        // 3. Activate premium locally
+        // 3. Activate premium locally + on backend
         activatePremium();
+        const token = localStorage.getItem("access_token");
+        if (token) {
+          fetch("http://127.0.0.1:8000/api/activate-premium/", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch((err) => console.error("[premium] backend activation failed:", err));
+        }
 
         // 4. Send invoice email
-        const txId = genTxId();
         const billingDate = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
-        fetch("/api/invoice", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            planName: plan.name,
-            price: plan.price,
-            userName: `${firstName} ${lastName}`.trim(),
-            userEmail: email,
-            transactionId: paymentIntent.id,
-            billingDate,
-          }),
-        }).catch(() => {});
+        try {
+          const invoiceRes = await fetch("/api/invoice", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              planName: plan.name,
+              price: plan.price,
+              userName: `${firstName} ${lastName}`.trim(),
+              userEmail: email,
+              transactionId: paymentIntent.id,
+              billingDate,
+            }),
+          });
+          const invoiceData = await invoiceRes.json();
+          if (!invoiceData.sent) console.warn("[invoice] email not sent — check GMAIL credentials");
+        } catch (err) {
+          console.error("[invoice] request failed:", err);
+        }
 
         setSuccess(true);
         setTimeout(() => router.push("/dashboard"), 2800);

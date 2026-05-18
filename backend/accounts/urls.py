@@ -76,6 +76,8 @@ urlpatterns = [
     path('profile/upload-cover/', views.upload_cover_photo_view, name='upload-cover-photo'),
     path('profile/suggestions/', views.profile_suggestions_view, name='profile-suggestions'),
     path('profile/delete/', views.delete_account_view, name='delete-account'),
+    # Premium
+    path('activate-premium/', views.activate_premium_view, name='activate-premium'),
     # Follow requests
     path('follow-requests/<int:follow_id>/approve/', views.approve_follow_view, name='approve-follow'),
     path('follow-requests/<int:follow_id>/deny/', views.deny_follow_view, name='deny-follow'),

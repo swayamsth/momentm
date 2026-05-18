@@ -1975,6 +1975,30 @@ def delete_account_view(request):
 
 # ─── Follow ───────────────────────────────────────────────────────────────────
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def activate_premium_view(request):
+    from django.utils import timezone
+    import datetime
+    try:
+        profile = request.user.userprofile
+    except Exception:
+        from .models import UserProfile
+        profile = UserProfile.objects.create(user=request.user)
+
+    now = timezone.now()
+    if profile.is_premium and profile.premium_expires_at and profile.premium_expires_at > now:
+        profile.premium_expires_at += datetime.timedelta(days=30)
+    else:
+        profile.is_premium = True
+        profile.premium_expires_at = now + datetime.timedelta(days=30)
+    profile.save()
+    return Response({
+        'is_premium': True,
+        'premium_expires_at': profile.premium_expires_at.isoformat(),
+    })
+
+
 @api_view(['POST', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def follow_user_view(request, user_id):
