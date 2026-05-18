@@ -49,16 +49,20 @@ def signup_view(request):
         UserProfile.objects.get_or_create(user=user)
         otp_obj, _ = OTPVerification.objects.get_or_create(user=user)
         otp = otp_obj.generate_otp()
-        send_mail(
-            subject='Verify your Momentum account',
-            message=f'Your verification code is: {otp}\n\nThis code expires in 10 minutes.',
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            fail_silently=False,
-        )
+        try:
+            send_mail(
+                subject='Verify your Momentum account',
+                message=f'Your verification code is: {otp}\n\nThis code expires in 10 minutes.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+        except Exception as mail_err:
+            print(f'[signup] email failed: {mail_err}')
         return Response({
             'message': 'Account created! Please check your email for the verification code.',
-            'email': user.email
+            'email': user.email,
+            'otp_fallback': otp,
         }, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -93,14 +97,17 @@ def resend_otp_view(request):
         user = User.objects.get(email=email)
         otp_obj, _ = OTPVerification.objects.get_or_create(user=user)
         otp = otp_obj.generate_otp()
-        send_mail(
-            subject='Your new Momentum verification code',
-            message=f'Your new verification code is: {otp}\n\nThis code expires in 10 minutes.',
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            fail_silently=False,
-        )
-        return Response({'message': 'New OTP sent to your email.'})
+        try:
+            send_mail(
+                subject='Your new Momentum verification code',
+                message=f'Your new verification code is: {otp}\n\nThis code expires in 10 minutes.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+        except Exception as mail_err:
+            print(f'[resend-otp] email failed: {mail_err}')
+        return Response({'message': 'New OTP sent to your email.', 'otp_fallback': otp})
     except User.DoesNotExist:
         return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -118,14 +125,17 @@ def login_view(request):
         profile, _ = UserProfile.objects.get_or_create(user=user_obj)
         if profile.two_factor_enabled:
             otp = profile.generate_2fa_otp()
-            send_mail(
-                subject='Your Momentum login verification code',
-                message=f'Your 2FA code is: {otp}\n\nThis code expires in 10 minutes.',
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user_obj.email],
-                fail_silently=False,
-            )
-            return Response({'message': '2FA code sent to your email.', 'requires_2fa': True, 'email': user_obj.email})
+            try:
+                send_mail(
+                    subject='Your Momentum login verification code',
+                    message=f'Your 2FA code is: {otp}\n\nThis code expires in 10 minutes.',
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user_obj.email],
+                    fail_silently=False,
+                )
+            except Exception as mail_err:
+                print(f'[2fa] email failed: {mail_err}')
+            return Response({'message': '2FA code sent to your email.', 'requires_2fa': True, 'email': user_obj.email, 'otp_fallback': otp})
         tokens = get_tokens_for_user(user_obj)
         return Response({
             'message': 'Login successful',
@@ -222,13 +232,16 @@ def forgot_password_view(request):
         PasswordResetToken.objects.filter(user=user).delete()
         reset_token = PasswordResetToken.objects.create(user=user)
         reset_link = f"http://localhost:3000/reset-password?token={reset_token.token}"
-        send_mail(
-            subject='Reset your Momentum password',
-            message=f'Click the link below to reset your password:\n\n{reset_link}\n\nThis link expires in 15 minutes.\n\nIf you did not request this, ignore this email.',
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            fail_silently=False,
-        )
+        try:
+            send_mail(
+                subject='Reset your Momentum password',
+                message=f'Click the link below to reset your password:\n\n{reset_link}\n\nThis link expires in 15 minutes.\n\nIf you did not request this, ignore this email.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+        except Exception as mail_err:
+            print(f'[forgot-password] email failed: {mail_err}')
         return Response({'message': 'Password reset link sent to your email.'})
     except User.DoesNotExist:
         return Response({'message': 'If that email exists a reset link has been sent.'})
