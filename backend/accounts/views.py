@@ -273,6 +273,14 @@ def get_user_loop_ids(user):
     return list(set(membership_ids + created_ids))
 
 
+def _get_pic(user):
+    try:
+        p = user.userprofile
+        return p.profile_picture_url or p.avatar_url
+    except Exception:
+        return None
+
+
 def serialize_post(post, request_user=None):
     full_name = f"{post.user.first_name} {post.user.last_name}".strip()
     comments = []
@@ -280,8 +288,10 @@ def serialize_post(post, request_user=None):
         comment_name = f"{comment.user.first_name} {comment.user.last_name}".strip()
         comments.append({
             'id': comment.id,
+            'user_id': comment.user.id,
             'user': comment_name or comment.user.email,
             'handle': comment.user.email.split('@')[0],
+            'avatar_url': _get_pic(comment.user),
             'text': comment.text,
             'likes': comment.likes.count(),
             'liked': request_user in comment.likes.all() if request_user and request_user.is_authenticated else False,
@@ -291,8 +301,10 @@ def serialize_post(post, request_user=None):
 
     return {
         'id': post.id,
+        'user_id': post.user.id,
         'user': full_name or post.user.email,
         'handle': post.user.email.split('@')[0],
+        'avatar_url': _get_pic(post.user),
         'text': post.text,
         'image': post.image_url or None,
         'loop': post.loop.name if post.loop else None,
@@ -1250,6 +1262,8 @@ def leaderboard_view(request):
         full_name = f"{user.first_name} {user.last_name}".strip() or user.email.split('@')[0]
         leaderboard.append({
             'name': full_name,
+            'user_id': user.id,
+            'avatar_url': _get_pic(user),
             'points': total_points,
             'streak': display_streak,
             'is_premium': profile.is_premium_active if profile else False,
@@ -1889,16 +1903,38 @@ def public_profile_view(request, user_id):
         for l in mutual_loops_qs
     ]
 
+    their_loops_qs = Loop.objects.filter(id__in=their_loop_ids)
+    their_loops_data = [
+        {'id': l.id, 'name': l.name, 'image_url': l.image_url, 'is_mutual': l.id in mutual_ids}
+        for l in their_loops_qs
+    ]
+
     followers_count = Follow.objects.filter(following=target_user, status='accepted').count()
     following_count = Follow.objects.filter(follower=target_user, status='accepted').count()
+
+    total_points = compute_user_points(target_user, profile if profile else None)
+    total_activities = ActivityLog.objects.filter(user=target_user).count()
+    logs_dates = set(ActivityLog.objects.filter(user=target_user).values_list('logged_at__date', flat=True))
+    today = timezone.now().date()
+    current_streak = 0
+    cur = today
+    while cur in logs_dates:
+        current_streak += 1
+        cur -= datetime.timedelta(days=1)
+
+    cosmetics_data = get_active_cosmetics(target_user)
 
     return Response({
         'id': target_user.id,
         'name': name,
+        'full_name': name,
         'handle': handle,
         'bio': bio,
         'profile_picture_url': pic,
+        'avatar_url': pic,
         'cover_photo_url': cover,
+        'is_premium': profile.is_premium_active if profile else False,
+        'member_since': target_user.date_joined.strftime('%b %Y'),
         'is_private': target_privacy == 'private',
         'post_count': Post.objects.filter(user=target_user, loop__isnull=True).count(),
         'followers_count': followers_count,
@@ -1908,6 +1944,14 @@ def public_profile_view(request, user_id):
         'can_see_posts': can_see_posts,
         'posts': posts_data,
         'mutual_loops': mutual_data,
+        'loops': their_loops_data,
+        'stats': {
+            'total_points': total_points,
+            'total_activities': total_activities,
+            'best_streak': current_streak,
+            'loops_count': len(their_loop_ids),
+        },
+        'cosmetics': cosmetics_data,
     })
 
 

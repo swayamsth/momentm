@@ -41,16 +41,6 @@ interface User {
   last_name: string;
 }
 
-// ─── Dummy notifications ──────────────────────────────────────────────────────
-
-const DUMMY_NOTIFICATIONS: Notification[] = [
-  { id: 1, type: "like", message: "Alex Kim liked your post in 5AM Run Club", time: "2m ago", read: false, loop: "5AM Run Club" },
-  { id: 2, type: "comment", message: "Jordan Lee commented on your post", time: "15m ago", read: false, loop: "Mindful Mornings" },
-  { id: 3, type: "join", message: "Sarah Chen joined your loop Strength 200", time: "1h ago", read: false, loop: "Strength 200" },
-  { id: 4, type: "request_approved", message: "Your request to join Sleep Stack was approved", time: "3h ago", read: true, loop: "Sleep Stack" },
-  { id: 5, type: "request_denied", message: "Your request to join Elite Runners was declined", time: "5h ago", read: true },
-];
-
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
 function loadUser(): User | null {
@@ -80,7 +70,7 @@ function NotifIcon({ type }: { type: Notification["type"] }) {
 
 function NotificationBell() {
   const router = useRouter();
-  const [notifications, setNotifications] = useState<Notification[]>(DUMMY_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -139,6 +129,12 @@ function NotificationBell() {
         localStorage.setItem('seen_notif_ids', JSON.stringify([...new Set([...existing, ...ids])]));
       } catch {}
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      const token = localStorage.getItem("access_token");
+      if (token) {
+        fetch("http://127.0.0.1:8000/api/notifications/mark-all-read/", {
+          method: "POST", headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
     }
     setOpen((prev) => !prev);
   };
@@ -409,6 +405,13 @@ export function AppShell({ children, headerLeft }: { children: React.ReactNode; 
   const [displayPoints, setDisplayPoints] = useState(0);
   const [pillVisible, setPillVisible] = useState(false);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 10);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     try {
@@ -555,28 +558,42 @@ export function AppShell({ children, headerLeft }: { children: React.ReactNode; 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Mobile header */}
-        <header className="lg:hidden sticky top-0 z-30 glass-strong m-3 rounded-2xl px-4 py-3 flex items-center justify-between">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg gradient-bg flex items-center justify-center">
-              <Activity className="w-4 h-4 text-primary-foreground" strokeWidth={2.5} />
+        <header className="lg:hidden sticky top-0 z-30 px-3 pt-3 pb-0">
+          <div className={cn(
+            "flex items-center justify-between px-4 py-3 rounded-2xl transition-all duration-500",
+            scrolled
+              ? "backdrop-blur-xl bg-background/80 border border-border/30 shadow-[0_4px_24px_rgba(0,0,0,0.06)]"
+              : "bg-transparent"
+          )}>
+            <Link href="/dashboard" className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg gradient-bg flex items-center justify-center">
+                <Activity className="w-4 h-4 text-primary-foreground" strokeWidth={2.5} />
+              </div>
+              <span className="font-semibold tracking-tight">Momentm</span>
+            </Link>
+            <div className="flex items-center gap-1.5">
+              <NotificationBell />
+              <button onClick={() => setOpen(!open)} className="p-2 rounded-xl hover:bg-accent/60 transition-colors">
+                {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </button>
             </div>
-            <span className="font-semibold">Momentm</span>
-          </Link>
-          <div className="flex items-center gap-2">
-            <NotificationBell />
-            <button onClick={() => setOpen(!open)} className="p-2 rounded-lg hover:bg-accent">
-              {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
           </div>
         </header>
         {/* Desktop top bar */}
-        <div className="hidden lg:flex sticky top-0 z-20 items-center justify-between gap-2 px-6 py-4">
-          <div className="flex-1 min-w-0">{headerLeft}</div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <NotificationBell />
+        <div className="hidden lg:block sticky top-0 z-20 px-6 pt-4 pb-0">
+          <div className={cn(
+            "flex items-center justify-between gap-2 px-5 py-3 rounded-2xl transition-all duration-500",
+            scrolled
+              ? "backdrop-blur-xl bg-background/80 border border-border/30 shadow-[0_4px_24px_rgba(0,0,0,0.06)]"
+              : "bg-transparent"
+          )}>
+            <div className="flex-1 min-w-0">{headerLeft}</div>
+            <div className="flex items-center gap-2 shrink-0">
+              <NotificationBell />
+            </div>
           </div>
         </div>
-        <main className="flex-1 px-4 pb-4 pt-2 lg:px-8 lg:pb-8 lg:pt-3 max-w-[1400px] w-full mx-auto">{children}</main>
+        <main className="flex-1 px-4 pb-4 pt-3 lg:px-8 lg:pb-8 lg:pt-4 max-w-[1400px] w-full mx-auto">{children}</main>
       </div>
 
       {open && <div onClick={() => setOpen(false)} className="lg:hidden fixed inset-0 bg-foreground/20 z-30" />}

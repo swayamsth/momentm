@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { UserQuickView } from "@/components/UserQuickView";
 
 type UserLoop = {
   id: number;
@@ -197,7 +198,7 @@ function Row({ u }: { u: LeaderboardUser }) {
 
   const profileHref = u.you ? "/profile" : `/profile/${u.user_id}`;
 
-  return (
+  const row = (
     <Link href={profileHref} className={`glass rounded-xl p-4 flex items-center gap-4 hover:ring-1 hover:ring-border transition-all ${u.you ? "ring-2 ring-primary" : ""}`}>
       <div className="w-8 flex justify-center">{rankIcon}</div>
       <div className={cn("w-10 h-10 rounded-full overflow-hidden shrink-0", !u.avatar_url && "gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm")}>
@@ -228,6 +229,9 @@ function Row({ u }: { u: LeaderboardUser }) {
       </div>
     </Link>
   );
+
+  if (u.you || !u.user_id) return row;
+  return <UserQuickView userId={u.user_id}>{row}</UserQuickView>;
 }
 
 export default function LeaderboardPage() {
@@ -413,7 +417,7 @@ export default function LeaderboardPage() {
                       <div className="text-xs text-muted-foreground/50">— pts</div>
                     </Card>
                   );
-                  return (
+                  const card = (
                     <Link key={u.name} href={u.you ? "/profile" : `/profile/${u.user_id}`}>
                       <Card className={`glass-strong border-0 p-5 text-center cursor-pointer hover:ring-1 hover:ring-border transition-all ${i === 1 ? "scale-105" : ""} ${u.you ? "ring-2 ring-primary" : ""}`}>
                         <div className="flex justify-center mb-2">
@@ -442,6 +446,8 @@ export default function LeaderboardPage() {
                       </Card>
                     </Link>
                   );
+                  if (u.you || !u.user_id) return card;
+                  return <UserQuickView key={u.name} userId={u.user_id}>{card}</UserQuickView>;
                 })}
               </div>
             )}

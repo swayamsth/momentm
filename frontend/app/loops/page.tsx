@@ -13,6 +13,7 @@ import {
   Crown, ArrowLeft, TrendingUp, Flame, Camera, Utensils, Zap,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { UserQuickView } from "@/components/UserQuickView";
 import { usePremium } from "@/hooks/usePremium";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
@@ -876,14 +877,21 @@ function PostCard({ post, loops, onLikePost, onAddComment, onLikeComment, onDele
       {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
       <Card className="glass border-0 p-4">
         <div className="flex gap-3">
-          <Link href={post.is_mine ? "/profile" : `/profile/${post.user_id}`} className="shrink-0">
-            <div className="w-10 h-10 rounded-full overflow-hidden gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm hover:opacity-80 transition-opacity">
-              {post.avatar_url
-                ? <img src={post.avatar_url} alt={post.user} className="w-full h-full object-cover" />
-                : post.user[0].toUpperCase()
-              }
-            </div>
-          </Link>
+          {post.is_mine ? (
+            <Link href="/profile" className="shrink-0">
+              <div className="w-10 h-10 rounded-full overflow-hidden gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm hover:opacity-80 transition-opacity">
+                {post.avatar_url ? <img src={post.avatar_url} alt={post.user} className="w-full h-full object-cover" /> : post.user[0].toUpperCase()}
+              </div>
+            </Link>
+          ) : (
+            <UserQuickView userId={post.user_id}>
+              <Link href={`/profile/${post.user_id}`} className="shrink-0">
+                <div className="w-10 h-10 rounded-full overflow-hidden gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm hover:opacity-80 transition-opacity">
+                  {post.avatar_url ? <img src={post.avatar_url} alt={post.user} className="w-full h-full object-cover" /> : post.user[0].toUpperCase()}
+                </div>
+              </Link>
+            </UserQuickView>
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2 text-sm flex-wrap">
@@ -967,14 +975,21 @@ function PostCard({ post, loops, onLikePost, onAddComment, onLikeComment, onDele
                 ) : (
                   post.comments.map((comment) => (
                     <div key={comment.id} className="flex gap-2 pl-2">
-                      <Link href={comment.is_mine ? "/profile" : `/profile/${comment.user_id}`} className="shrink-0">
-                        <div className="w-7 h-7 rounded-full overflow-hidden bg-muted flex items-center justify-center font-semibold text-xs hover:opacity-80 transition-opacity">
-                          {comment.avatar_url
-                            ? <img src={comment.avatar_url} alt={comment.user} className="w-full h-full object-cover" />
-                            : comment.user[0].toUpperCase()
-                          }
-                        </div>
-                      </Link>
+                      {comment.is_mine ? (
+                        <Link href="/profile" className="shrink-0">
+                          <div className="w-7 h-7 rounded-full overflow-hidden bg-muted flex items-center justify-center font-semibold text-xs hover:opacity-80 transition-opacity">
+                            {comment.avatar_url ? <img src={comment.avatar_url} alt={comment.user} className="w-full h-full object-cover" /> : comment.user[0].toUpperCase()}
+                          </div>
+                        </Link>
+                      ) : (
+                        <UserQuickView userId={comment.user_id}>
+                          <Link href={`/profile/${comment.user_id}`} className="shrink-0">
+                            <div className="w-7 h-7 rounded-full overflow-hidden bg-muted flex items-center justify-center font-semibold text-xs hover:opacity-80 transition-opacity">
+                              {comment.avatar_url ? <img src={comment.avatar_url} alt={comment.user} className="w-full h-full object-cover" /> : comment.user[0].toUpperCase()}
+                            </div>
+                          </Link>
+                        </UserQuickView>
+                      )}
                       <div className="flex-1 bg-muted rounded-xl px-3 py-2">
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <div className="flex items-center gap-2 text-xs">
