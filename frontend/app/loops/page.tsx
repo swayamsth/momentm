@@ -937,7 +937,12 @@ function PostCard({ post, loops, onLikePost, onAddComment, onLikeComment, onDele
 
             {post.image && !editing && (
               <div className="mt-3 relative group cursor-pointer rounded-xl overflow-hidden" onClick={() => setLightboxSrc(post.image!)}>
-                <img src={post.image} alt="Post attachment" className="w-full max-h-64 object-cover rounded-xl transition-transform group-hover:scale-[1.01]" />
+                <img
+                  src={post.image}
+                  alt="Post attachment"
+                  className="w-full block rounded-xl"
+                  style={{ height: "auto", maxHeight: "520px", objectFit: "cover", objectPosition: "center top" }}
+                />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-xl flex items-center justify-center">
                   <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
                 </div>
