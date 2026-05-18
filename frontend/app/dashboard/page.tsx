@@ -556,6 +556,41 @@ function Dashboard() {
           </Card>
         </div>
 
+        {/* Recent Nutrition */}
+        {nutritionLogs.length > 0 && (
+          <Card className="glass border-0 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-xs text-muted-foreground uppercase tracking-widest">Nutrition log</div>
+              <Salad className="w-4 h-4 text-muted-foreground/50" />
+            </div>
+            <div className="space-y-2">
+              {nutritionLogs.slice(0, 5).map((log) => (
+                <div key={log.id} className="flex items-center justify-between py-2.5 border-b border-border/40 last:border-0">
+                  <div className="text-sm font-medium tabular-nums">{log.date}</div>
+                  <div className="flex gap-5 text-right">
+                    <div>
+                      <div className="text-sm font-semibold tabular-nums">{log.protein}<span className="text-xs text-muted-foreground ml-0.5">g</span></div>
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Protein</div>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold tabular-nums">{log.carbs}<span className="text-xs text-muted-foreground ml-0.5">g</span></div>
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Carbs</div>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold tabular-nums">{log.fats}<span className="text-xs text-muted-foreground ml-0.5">g</span></div>
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Fats</div>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold tabular-nums">{log.calories.toLocaleString()}<span className="text-xs text-muted-foreground ml-0.5">kcal</span></div>
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Calories</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
         {/* Recent Activities */}
         {activities.length > 0 && (
           <Card className="glass border-0 p-6">
