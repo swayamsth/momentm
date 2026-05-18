@@ -162,12 +162,11 @@ export function UserQuickView({
     <>
       {/* Desktop: hover card */}
       <HoverCard openDelay={300} closeDelay={100}>
-        <HoverCardTrigger asChild onMouseEnter={fetchProfile}>
-          {/* Wrap in a span so we can intercept mobile tap via the drawer below */}
+        <HoverCardTrigger asChild>
           <span
-            className="contents"
+            className="inline-block"
+            onMouseEnter={fetchProfile}
             onClick={(e) => {
-              // On touch devices open drawer instead of navigating
               if (window.matchMedia("(pointer: coarse)").matches) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -181,7 +180,7 @@ export function UserQuickView({
         </HoverCardTrigger>
         <HoverCardContent
           className="w-80 glass-strong border-border/50 shadow-2xl p-4 rounded-2xl"
-          side="top"
+          side="bottom"
           align="start"
         >
           {profile ? (
