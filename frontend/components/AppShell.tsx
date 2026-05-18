@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Sparkles, Users, Trophy, CreditCard,
   LogOut, Activity, Menu, X, Bell, Heart, MessageCircle,
-  UserCheck, UserPlus, Check, Gift, Coins, ChevronUp, User, Settings,
+  UserCheck, UserPlus, Check, Gift, Coins, ChevronUp, User, Settings, CalendarDays, RefreshCw,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/ai", label: "Momentm AI", icon: Sparkles },
+  { to: "/plan", label: "My Plan", icon: CalendarDays },
   { to: "/loops", label: "Loops", icon: Users },
   { to: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { to: "/rewards", label: "My Rewards", icon: Gift },
@@ -22,7 +23,7 @@ const nav = [
 
 interface Notification {
   id: string | number;
-  type: "like" | "comment" | "join" | "request_approved" | "request_denied" | "join_request" | "new_member" | "follow_request" | "new_follower";
+  type: "like" | "comment" | "join" | "request_approved" | "request_denied" | "join_request" | "new_member" | "follow_request" | "new_follower" | "recalibration";
   message: string;
   time: string;
   read: boolean;
@@ -31,6 +32,7 @@ interface Notification {
   loop_id?: number;
   follow_id?: number;
   follower_id?: number;
+  plan_id?: number;
 }
 
 interface User {
@@ -70,12 +72,14 @@ function NotifIcon({ type }: { type: Notification["type"] }) {
   if (type === "request_approved") return <div className={`${base} bg-emerald-100`}><UserCheck className="w-4 h-4 text-emerald-500" /></div>;
   if (type === "join_request" || type === "follow_request") return <div className={`${base} bg-amber-100`}><UserPlus className="w-4 h-4 text-amber-500" /></div>;
   if (type === "new_follower") return <div className={`${base} bg-purple-100`}><UserCheck className="w-4 h-4 text-purple-500" /></div>;
+  if (type === "recalibration") return <div className={`${base} bg-purple-100`}><RefreshCw className="w-4 h-4 text-purple-500" /></div>;
   return <div className={`${base} bg-orange-100`}><X className="w-4 h-4 text-orange-500" /></div>;
 }
 
 // ─── Bell Button ──────────────────────────────────────────────────────────────
 
 function NotificationBell() {
+  const router = useRouter();
   const [notifications, setNotifications] = useState<Notification[]>(DUMMY_NOTIFICATIONS);
   const [open, setOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
@@ -92,7 +96,14 @@ function NotificationBell() {
         });
         if (!res.ok) return;
         const data = await res.json();
-        if (Array.isArray(data)) setNotifications(data);
+        if (Array.isArray(data)) {
+          try {
+            const seen: string[] = JSON.parse(localStorage.getItem('seen_notif_ids') || '[]');
+            setNotifications(data.map((n: Notification) => ({ ...n, read: seen.includes(String(n.id)) })));
+          } catch {
+            setNotifications(data);
+          }
+        }
       } catch { /* keep dummy data */ }
     };
     fetchNotifications();
@@ -120,6 +131,14 @@ function NotificationBell() {
         top: rect.bottom + 8,
         right: Math.max(8, window.innerWidth - rect.right),
       });
+    }
+    if (!open) {
+      try {
+        const ids = notifications.map(n => String(n.id));
+        const existing: string[] = JSON.parse(localStorage.getItem('seen_notif_ids') || '[]');
+        localStorage.setItem('seen_notif_ids', JSON.stringify([...new Set([...existing, ...ids])]));
+      } catch {}
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     }
     setOpen((prev) => !prev);
   };
@@ -196,9 +215,11 @@ function NotificationBell() {
                   return (
                     <div
                       key={n.id}
+                      onClick={() => { if (n.type === "recalibration") { setOpen(false); router.push("/plan"); } }}
                       className={cn(
                         "flex flex-col px-4 py-3 transition-colors",
-                        !n.read && "bg-primary/5"
+                        !n.read && "bg-primary/5",
+                        n.type === "recalibration" && "cursor-pointer hover:bg-accent"
                       )}
                     >
                       <div className="flex items-start gap-3">

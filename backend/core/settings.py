@@ -1,7 +1,9 @@
 from pathlib import Path
 import os
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / '.env')
 
 SECRET_KEY = 'django-insecure-o42m5%#9=$3ycnn2og#&yx1qf773jb^pem29@kfs5e1rqwnvel'
 
@@ -154,3 +156,5 @@ MEDIA_ROOT = BASE_DIR / 'media'
 SUPABASE_URL = "https://poxodxwrdhyatvefzbij.supabase.co"
 SUPABASE_KEY = "sb_publishable_6wbuEV-5dX0xP8LV19dsLA_7pEteAnP"
 SUPABASE_BUCKET = "post-images"
+
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')

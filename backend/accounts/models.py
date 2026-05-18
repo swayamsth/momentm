@@ -268,3 +268,61 @@ class ClaimedReward(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.reward.name}"
+
+
+class UserFitnessProfile(models.Model):
+    LEVEL_CHOICES = [
+        ('beginner', 'Beginner'),
+        ('intermediate', 'Intermediate'),
+        ('advanced', 'Advanced'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='fitness_profile')
+    age = models.IntegerField(null=True, blank=True)
+    weight_kg = models.FloatField(null=True, blank=True)
+    fitness_level = models.CharField(max_length=20, choices=LEVEL_CHOICES, default='beginner')
+    days_per_week = models.IntegerField(default=4)
+    time_per_session_min = models.IntegerField(default=45)
+    equipment = models.JSONField(default=list)
+    dietary_restrictions = models.JSONField(default=list)
+    injuries = models.TextField(blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.email} — fitness profile"
+
+
+class UserGoal(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='goal')
+    goal_text = models.TextField()
+    timeframe_days = models.IntegerField()
+    start_date = models.DateField(auto_now_add=True)
+    end_date = models.DateField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.email} - {self.goal_text[:50]}"
+
+
+class WeeklyPlan(models.Model):
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('pending_review', 'Pending Review'),
+        ('accepted', 'Accepted'),
+        ('denied', 'Denied'),
+    ]
+    goal = models.ForeignKey(UserGoal, on_delete=models.CASCADE, related_name='weekly_plans')
+    week_number = models.IntegerField()
+    week_start = models.DateField()
+    plan_data = models.JSONField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    is_recalibration = models.BooleanField(default=False)
+    recalibration_note = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-week_number']
+
+    def __str__(self):
+        return f"{self.goal.user.email} - Week {self.week_number}"

@@ -16,3 +16,5 @@ typing_extensions==4.15.0
 Pillow
 supabase
 anthropic
+openai
+python-dotenv

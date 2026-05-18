@@ -73,6 +73,16 @@ export default function AuthPage() {
             localStorage.setItem("access_token", data.tokens.access);
             localStorage.setItem("refresh_token", data.tokens.refresh);
             localStorage.setItem("user", JSON.stringify(data.user));
+            try {
+              const fpRes = await fetch("http://127.0.0.1:8000/api/fitness-profile/", {
+                headers: { Authorization: `Bearer ${data.tokens.access}` },
+              });
+              const fp = await fpRes.json();
+              if (fp.age === null && fp.weight_kg === null) {
+                router.push("/onboarding");
+                return;
+              }
+            } catch {}
             router.push("/dashboard");
           }
         } else {
