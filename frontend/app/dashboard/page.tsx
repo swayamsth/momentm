@@ -8,10 +8,9 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Footprints, Flame, Moon, TrendingUp, Sparkles, Plus, Check, X, Award, Settings, LogOut, Clock, Dumbbell, Star, Bell, Utensils,
+  Footprints, Flame, Moon, TrendingUp, Plus, Clock, Dumbbell, Salad, ArrowRight, Utensils,
 } from "lucide-react";
 import {
   AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -60,26 +59,16 @@ interface NutritionLog {
   date: string;
 }
 
-interface Notification {
-  id: string;
-  type: string;
-  message: string;
-  time: string;
-  read: boolean;
-  membership_id?: number;
-  loop_id?: number;
-}
 
-function Stat({ icon: Icon, label, value, unit, color, onClick }: any) {
+function Stat({ icon: Icon, label, value, unit, onClick }: any) {
   return (
-    <Card className={cn("glass border-0 p-5", onClick && "cursor-pointer hover:ring-2 hover:ring-primary/30 transition-all")} onClick={onClick}>
-      <div className="flex items-start justify-between mb-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `color-mix(in oklab, ${color} 15%, transparent)` }}>
-          <Icon className="w-5 h-5" style={{ color }} />
-        </div>
+    <Card className={cn("glass border-0 p-5 group", onClick && "cursor-pointer hover:bg-accent/40 transition-colors")} onClick={onClick}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs text-muted-foreground uppercase tracking-widest">{label}</div>
+        {Icon && <Icon className="w-4 h-4 text-muted-foreground/50" />}
       </div>
-      <div className="text-2xl font-semibold tracking-tight">{value}<span className="text-sm font-normal text-muted-foreground ml-1">{unit}</span></div>
-      <div className="text-xs text-muted-foreground mt-1">{label}</div>
+      <div className="text-3xl font-semibold tracking-tight tabular-nums">{value}<span className="text-base font-normal text-muted-foreground ml-1.5">{unit}</span></div>
+      {onClick && <div className="text-[11px] text-muted-foreground/60 mt-2 group-hover:text-primary transition-colors">Tap to log →</div>}
     </Card>
   );
 }
@@ -153,8 +142,6 @@ function Dashboard() {
   const [trendData, setTrendData] = useState<{ day: string; steps: number; calories: number }[]>([]);
   const [sleepLogs, setSleepLogs] = useState<SleepLog[]>([]);
   const [nutritionLogs, setNutritionLogs] = useState<NutritionLog[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [notifOpen, setNotifOpen] = useState(false);
 
   // Activity log dialog
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -184,10 +171,8 @@ function Dashboard() {
   // Auto-calculate calories from macros
   const nutritionCalories = nutritionProtein * 4 + nutritionCarbs * 4 + nutritionFats * 9;
 
-  const [adjustments, setAdjustments] = useState([
-    { id: 1, metric: "Daily steps", from: "8,000", to: "9,500", reason: "You've exceeded your goal 6 of 7 days." },
-    { id: 2, metric: "Sleep window", from: "7h", to: "7h 30m", reason: "Recovery scores trending down on low-sleep days." },
-  ]);
+  const [weeklyGoal, setWeeklyGoal] = useState(4);
+  const [hasPendingRecalibration, setHasPendingRecalibration] = useState(false);
 
   const buildTrend = (data: ActivityLog[]) => {
     if (data.length === 0) return [];
@@ -200,11 +185,11 @@ function Dashboard() {
 
   const fetchAll = async (token: string) => {
     try {
-      const [actRes, sleepRes, nutritionRes, notifRes] = await Promise.all([
+      const [actRes, sleepRes, nutritionRes, planRes] = await Promise.all([
         fetch(`${API}/activities/`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API}/sleep/`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API}/nutrition/`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API}/notifications/`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API}/plan/`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (actRes.ok) {
         const data: ActivityLog[] = await actRes.json();
@@ -213,7 +198,12 @@ function Dashboard() {
       }
       if (sleepRes.ok) setSleepLogs(await sleepRes.json());
       if (nutritionRes.ok) setNutritionLogs(await nutritionRes.json());
-      if (notifRes.ok) setNotifications(await notifRes.json());
+      if (planRes.ok) {
+        const data = await planRes.json();
+        const target = data.current_plan?.plan_data?.target_sessions;
+        if (target) setWeeklyGoal(target);
+        setHasPendingRecalibration(data.current_plan?.status === 'pending_review');
+      }
     } catch {
       console.log("Could not fetch data");
     }
@@ -322,14 +312,6 @@ function Dashboard() {
     finally { setNutritionLoading(false); }
   };
 
-  const handleLogout = () => {
-    const refresh = localStorage.getItem("refresh_token");
-    fetch(`${API}/logout/`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh }) }).catch(() => {});
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    localStorage.removeItem("user");
-    router.push("/");
-  };
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -350,7 +332,6 @@ function Dashboard() {
   const todaySleep = sleepLogs.find(s => s.date === todayStr);
   const todayNutrition = nutritionLogs.find(n => n.date === todayStr);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
   const displayName = user?.first_name || user?.email?.split("@")[0] || "there";
 
   if (!user) return null;
@@ -365,48 +346,6 @@ function Dashboard() {
             <h1 className="text-3xl font-semibold tracking-tight">{getGreeting()}, {displayName} 👋</h1>
           </div>
           <div className="flex items-center gap-2">
-            {/* Settings */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm"><Settings className="w-4 h-4" /></Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={() => router.push("/settings")}>
-                  <Settings className="w-4 h-4 mr-2" /> Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout} className="text-red-500 focus:text-red-500">
-                  <LogOut className="w-4 h-4 mr-2" /> Logout
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Notifications */}
-            <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="relative">
-                  <Bell className="w-4 h-4" />
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full gradient-bg text-[10px] text-white flex items-center justify-center">
-                      {unreadCount}
-                    </span>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80 max-h-96 overflow-y-auto">
-                {notifications.length === 0 ? (
-                  <div className="p-4 text-sm text-muted-foreground text-center">No notifications</div>
-                ) : (
-                  notifications.slice(0, 10).map((n) => (
-                    <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-0.5 py-3">
-                      <span className="text-sm">{n.message}</span>
-                      <span className="text-xs text-muted-foreground">{n.time}</span>
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
             {/* Log Activity */}
             <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); setLogError(""); setScreenshot(null); setVerificationResult(null); }}>
               <DialogTrigger asChild>
@@ -476,32 +415,35 @@ function Dashboard() {
           </div>
         </div>
 
+        {/* Recalibration banner */}
+        {hasPendingRecalibration && (
+          <div
+            onClick={() => router.push('/plan')}
+            className="cursor-pointer rounded-2xl px-5 py-4 flex items-center justify-between gap-4 gradient-bg text-primary-foreground hover:opacity-90 transition-opacity shadow-[var(--shadow-elegant)]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="w-2 h-2 rounded-full bg-background animate-pulse shrink-0" />
+              <div>
+                <p className="text-sm font-bold tracking-tight">Your plan has a new update</p>
+                <p className="text-xs opacity-60 mt-0.5">Tap to review and accept or keep your current plan.</p>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 shrink-0 opacity-70" />
+          </div>
+        )}
+
         {/* Stats row 1 — activity stats + weekly workouts */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <Stat icon={Footprints} label="Steps today" value={totalStepsToday.toLocaleString()} unit="steps" color="oklch(0.6 0.22 255)" />
-          <Stat icon={Flame} label="Calories burned" value={totalCaloriesToday.toLocaleString()} unit="kcal" color="oklch(0.62 0.22 25)" />
-          <Stat icon={TrendingUp} label="Streak" value={currentStreak} unit="days" color="oklch(0.7 0.16 155)" />
-          <Stat icon={Dumbbell} label="Workouts this week" value={Math.min(weeklyWorkouts, WEEKLY_GOAL)} unit={`/ ${WEEKLY_GOAL}`} color="oklch(0.6 0.22 255)" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Stat icon={Footprints} label="Steps today" value={totalStepsToday.toLocaleString()} unit="steps" />
+          <Stat icon={Flame} label="Calories burned" value={totalCaloriesToday.toLocaleString()} unit="kcal" />
+          <Stat icon={TrendingUp} label="Streak" value={currentStreak} unit="days" />
+          <Stat icon={Dumbbell} label="Workouts this week" value={Math.min(weeklyWorkouts, weeklyGoal)} unit={`/ ${weeklyGoal}`} />
         </div>
 
         {/* Stats row 2 — sleep + nutrition (clickable to log) */}
-        <div className="grid grid-cols-2 gap-4">
-          <Stat
-            icon={Moon}
-            label="Sleep last night"
-            value={todaySleep ? todaySleep.hours : "—"}
-            unit="hrs"
-            color="oklch(0.55 0.18 300)"
-            onClick={() => setSleepDialogOpen(true)}
-          />
-          <Stat
-            icon={Utensils}
-            label="Nutrition today"
-            value={todayNutrition ? todayNutrition.calories.toLocaleString() : "—"}
-            unit="kcal"
-            color="oklch(0.75 0.18 85)"
-            onClick={() => setNutritionDialogOpen(true)}
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <Stat icon={Moon} label="Sleep last night" value={todaySleep ? todaySleep.hours : "—"} unit="hrs" onClick={() => setSleepDialogOpen(true)} />
+          <Stat icon={Utensils} label="Nutrition today" value={todayNutrition ? todayNutrition.calories.toLocaleString() : "—"} unit="kcal" onClick={() => setNutritionDialogOpen(true)} />
         </div>
 
         {/* Sleep log dialog */}
@@ -666,48 +608,6 @@ function Dashboard() {
           </Card>
         )}
 
-        {/* AI Recalibration */}
-        <Card className="glass-strong border-0 p-6">
-          <div className="flex items-start justify-between mb-5 flex-wrap gap-2">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center shadow-[var(--shadow-glow)]">
-                <Sparkles className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <div>
-                <h3 className="font-semibold flex items-center gap-2">
-                  AI-Driven Recalibration <Badge variant="secondary">{adjustments.length} new</Badge>
-                </h3>
-                <p className="text-xs text-muted-foreground">Momentm AI suggests these adjustments based on your last 7 days.</p>
-              </div>
-            </div>
-          </div>
-          <div className="space-y-3">
-            {adjustments.map((a) => (
-              <div key={a.id} className="glass rounded-xl p-4 flex flex-wrap items-center gap-4">
-                <div className="flex-1 min-w-[200px]">
-                  <div className="text-sm font-medium">{a.metric}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{a.reason}</div>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-muted-foreground line-through">{a.from}</span>
-                  <TrendingUp className="w-3.5 h-3.5 text-primary" />
-                  <span className="font-semibold gradient-text">{a.to}</span>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => setAdjustments(adjustments.filter((x) => x.id !== a.id))}>
-                    <X className="w-4 h-4" />
-                  </Button>
-                  <Button size="sm" className="gradient-bg" onClick={() => setAdjustments(adjustments.filter((x) => x.id !== a.id))}>
-                    <Check className="w-4 h-4 mr-1" /> Approve
-                  </Button>
-                </div>
-              </div>
-            ))}
-            {adjustments.length === 0 && (
-              <div className="text-center py-8 text-sm text-muted-foreground">All caught up ✨</div>
-            )}
-          </div>
-        </Card>
       </div>
     </AppShell>
   );

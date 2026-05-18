@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { usePremium } from "@/hooks/usePremium";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
-  CalendarDays, ChevronDown, ChevronUp, Check, X,
+  CalendarDays, ChevronDown, ChevronUp, Check, X, ArrowRight,
   Dumbbell, BedDouble, Salad, Pencil, Loader2, Sparkles, Utensils,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -40,11 +41,11 @@ function computeMacroTargets(weight: number, tdee: number) {
 }
 
 export default function PlanPage() {
+  const { isPremium: localPremium } = usePremium();
   const [data, setData] = useState<PlanResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [setting_up, setSettingUp] = useState(false);
   const [responding, setResponding] = useState(false);
-  const [recalibrating, setRecalibrating] = useState(false);
   const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set());
   const [showSetup, setShowSetup] = useState(false);
   const [goalText, setGoalText] = useState("");
@@ -60,7 +61,7 @@ export default function PlanPage() {
     const t = token();
     const headers = { Authorization: `Bearer ${t}` };
     Promise.all([
-      fetch("http://127.0.0.1:8000/api/plan/", { headers }).then(r => r.json()),
+      fetch("http://127.0.0.1:8000/api/plan/?recalibrate=true", { headers }).then(r => r.json()),
       fetch("http://127.0.0.1:8000/api/nutrition/", { headers }).then(r => r.ok ? r.json() : []),
       fetch("http://127.0.0.1:8000/api/fitness-profile/", { headers }).then(r => r.ok ? r.json() : null),
       fetch("http://127.0.0.1:8000/api/activities/", { headers }).then(r => r.ok ? r.json() : []),
@@ -123,26 +124,6 @@ export default function PlanPage() {
     }
   };
 
-  const handleRecalibrate = async () => {
-    setRecalibrating(true);
-    try {
-      const res = await fetch("http://127.0.0.1:8000/api/plan/recalibrate/", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token()}` },
-      });
-      const d = await res.json();
-      if (!res.ok) { toast.error(d.error || "Failed to recalibrate."); return; }
-      const refreshed = await fetch("http://127.0.0.1:8000/api/plan/", {
-        headers: { Authorization: `Bearer ${token()}` },
-      }).then(r => r.json());
-      setData(refreshed);
-      toast.success("Recalibration ready — review your updated plan.");
-    } catch {
-      toast.error("Something went wrong.");
-    } finally {
-      setRecalibrating(false);
-    }
-  };
 
   const toggleWeek = (id: number) => {
     setExpandedWeeks(prev => {
@@ -237,7 +218,8 @@ export default function PlanPage() {
     );
   }
 
-  const { goal, current_plan, past_plans, is_premium } = data!;
+  const { goal, current_plan, past_plans, is_premium: backendPremium } = data!;
+  const is_premium = backendPremium || localPremium;
   const pendingPlan = current_plan?.status === "pending_review" ? current_plan : null;
   const activePlan = current_plan?.status === "active" ? current_plan : null;
   const weeksTotal = goal ? Math.ceil(goal.timeframe_days / 7) : 0;
@@ -318,32 +300,37 @@ export default function PlanPage() {
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                 Week {activePlan.week_number} — Day {(activePlan.week_number - 1) * 7 + 1} to {activePlan.week_number * 7}
               </h2>
-              {is_premium && !pendingPlan && (
-                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={handleRecalibrate} disabled={recalibrating}>
-                  {recalibrating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Sparkles className="w-3 h-3 mr-1" />}
-                  Recalibrate
-                </Button>
-              )}
             </div>
             <PlanCard plan={activePlan} />
           </div>
         )}
 
-        {/* ── Premium upsell for recalibration ── */}
+        {/* ── Premium CTA ── */}
         {!is_premium && activePlan && (
-          <Card className="glass border-0 p-4 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <Sparkles className="w-5 h-5 text-primary shrink-0" />
-              <div>
-                <p className="text-sm font-medium">Weekly recalibration is a Premium feature</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Upgrade to get your plan auto-adjusted every week based on your activity.</p>
+          <Card className="glass border-0 overflow-hidden">
+            <div className="p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center shrink-0">
+                  <Sparkles className="w-5 h-5 text-primary-foreground" />
+                </div>
+                <div>
+                  <p className="font-semibold">Unlock weekly auto-recalibration</p>
+                  <p className="text-sm text-muted-foreground mt-0.5">Premium members get their plan automatically adjusted every 7 days based on activity, sleep, and nutrition — no manual effort needed.</p>
+                </div>
               </div>
+              <div className="space-y-1.5">
+                {["Plan auto-adjusted every 7 days", "Tracks sleep, activity & nutrition", "Accept or keep your current plan"].map(f => (
+                  <div key={f} className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Check className="w-3.5 h-3.5 text-primary shrink-0" /> {f}
+                  </div>
+                ))}
+              </div>
+              <Link href="/payment">
+                <Button className="w-full gradient-bg shadow-[var(--shadow-elegant)] hover:opacity-90">
+                  Upgrade to Premium <ArrowRight className="w-4 h-4 ml-1" />
+                </Button>
+              </Link>
             </div>
-            <Link href="/payment">
-              <Button size="sm" className="gradient-bg border-0 text-primary-foreground shrink-0 shadow-[var(--shadow-elegant)] hover:opacity-90">
-                Upgrade
-              </Button>
-            </Link>
           </Card>
         )}
 
