@@ -8,10 +8,9 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Footprints, Flame, Moon, TrendingUp, Sparkles, Plus, Check, X, Award, Settings, LogOut, Clock, Dumbbell,
+  Footprints, Flame, Moon, TrendingUp, Sparkles, Plus, Check, X, Award, Clock, Dumbbell,
 } from "lucide-react";
 import {
   AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -79,6 +78,7 @@ function Dashboard() {
     { id: 1, metric: "Daily steps", from: "8,000", to: "9,500", reason: "You've exceeded your goal 6 of 7 days." },
     { id: 2, metric: "Sleep window", from: "7h", to: "7h 30m", reason: "Recovery scores trending down on low-sleep days." },
   ]);
+
 
   const buildTrend = (data: ActivityLog[]) => {
     const trend = data.slice(0, 14).reverse().map((log, i) => ({
@@ -167,19 +167,6 @@ function Dashboard() {
     }
   };
 
-  const handleLogout = () => {
-    const refresh = localStorage.getItem("refresh_token");
-    fetch("http://127.0.0.1:8000/api/logout/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh }),
-    }).catch(() => {});
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    localStorage.removeItem("user");
-    router.push("/");
-  };
-
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return "Good morning";
@@ -196,33 +183,18 @@ function Dashboard() {
 
   if (!user) return null;
 
-  return (
-    <AppShell>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <div className="text-sm text-muted-foreground">Welcome back</div>
-            <h1 className="text-3xl font-semibold tracking-tight">
-              {getGreeting()}, {displayName} 👋
-            </h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm"><Settings className="w-4 h-4" /></Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={() => router.push("/settings")}>
-                  <Settings className="w-4 h-4 mr-2" /> Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout} className="text-red-500 focus:text-red-500">
-                  <LogOut className="w-4 h-4 mr-2" /> Logout
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+  const headerLeft = (
+    <div>
+      <p className="text-xs text-muted-foreground leading-none">Welcome back</p>
+      <h1 className="text-xl font-semibold tracking-tight">{getGreeting()}, {displayName} 👋</h1>
+    </div>
+  );
 
+  return (
+    <AppShell headerLeft={headerLeft}>
+      <div className="space-y-6">
+        {/* Log activity */}
+        <div className="flex justify-end">
             <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); setLogError(""); }}>
               <DialogTrigger asChild>
                 <Button size="lg" className="gradient-bg shadow-[var(--shadow-elegant)]">
@@ -304,7 +276,6 @@ function Dashboard() {
                 </form>
               </DialogContent>
             </Dialog>
-          </div>
         </div>
 
         {/* Stats - now shows today's cumulative totals, resets at midnight */}
@@ -467,10 +438,7 @@ function Dashboard() {
         {/* Goal Progress */}
         <div className="grid md:grid-cols-3 gap-4">
           {[
-            { label: "Weekly workouts", value: Math.min(activities.filter(a => {
-                const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-                return true;
-              }).length, 5), target: 5, color: "oklch(0.6 0.22 255)" },
+            { label: "Weekly workouts", value: Math.min(activities.length, 5), target: 5, color: "oklch(0.6 0.22 255)" },
             { label: "Mindful minutes", value: 70, target: 100, color: "oklch(0.7 0.16 155)" },
             { label: "Hydration (cups)", value: 6, target: 8, color: "oklch(0.55 0.18 300)" },
           ].map((g) => (

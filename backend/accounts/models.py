@@ -41,12 +41,22 @@ class PasswordResetToken(models.Model):
 
 
 class UserProfile(models.Model):
+    PRIVACY_CHOICES = [
+        ('public', 'Public'),
+        ('private', 'Private'),
+        ('restricted', 'Restricted'),
+    ]
+
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     two_factor_enabled = models.BooleanField(default=False)
     two_factor_otp = models.CharField(max_length=6, blank=True, null=True)
     two_factor_otp_created_at = models.DateTimeField(blank=True, null=True)
     is_premium = models.BooleanField(default=False)
     premium_expires_at = models.DateTimeField(blank=True, null=True)
+    privacy = models.CharField(max_length=20, choices=PRIVACY_CHOICES, default='public')
+    bio = models.TextField(blank=True, default='')
+    profile_picture_url = models.URLField(max_length=1000, blank=True, null=True)
+    cover_photo_url = models.URLField(max_length=1000, blank=True, null=True)
 
     @property
     def is_premium_active(self):
@@ -82,8 +92,8 @@ class Loop(models.Model):
     is_private = models.BooleanField(default=False)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_loops')
     created_at = models.DateTimeField(auto_now_add=True)
-    # ── NEW: group image ──
     image_url = models.URLField(max_length=1000, blank=True, null=True)
+    cover_url = models.URLField(max_length=1000, blank=True, null=True)
 
     def __str__(self):
         return self.name
@@ -136,6 +146,23 @@ class Comment(models.Model):
 
     class Meta:
         ordering = ['created_at']
+
+
+class Follow(models.Model):
+    STATUS_CHOICES = [
+        ('accepted', 'Accepted'),
+        ('pending', 'Pending'),
+    ]
+    follower = models.ForeignKey(User, on_delete=models.CASCADE, related_name='following_set')
+    following = models.ForeignKey(User, on_delete=models.CASCADE, related_name='followers_set')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='accepted')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('follower', 'following')
+
+    def __str__(self):
+        return f"{self.follower.email} → {self.following.email} ({self.status})"
 
 
 class ActivityLog(models.Model):

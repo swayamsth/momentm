@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Sparkles, Users, Trophy, CreditCard,
   LogOut, Activity, Menu, X, Bell, Heart, MessageCircle,
-  UserCheck, UserPlus, Check, Gift, Coins,
+  UserCheck, UserPlus, Check, Gift, Coins, ChevronUp, User, Settings,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -21,12 +21,16 @@ const nav = [
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Notification {
-  id: number;
-  type: "like" | "comment" | "join" | "request_approved" | "request_denied";
+  id: string | number;
+  type: "like" | "comment" | "join" | "request_approved" | "request_denied" | "join_request" | "new_member" | "follow_request" | "new_follower";
   message: string;
   time: string;
   read: boolean;
   loop?: string;
+  membership_id?: number;
+  loop_id?: number;
+  follow_id?: number;
+  follower_id?: number;
 }
 
 interface User {
@@ -62,8 +66,10 @@ function NotifIcon({ type }: { type: Notification["type"] }) {
   const base = "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0";
   if (type === "like") return <div className={`${base} bg-red-100`}><Heart className="w-4 h-4 text-red-500" /></div>;
   if (type === "comment") return <div className={`${base} bg-blue-100`}><MessageCircle className="w-4 h-4 text-blue-500" /></div>;
-  if (type === "join") return <div className={`${base} bg-green-100`}><UserPlus className="w-4 h-4 text-green-500" /></div>;
+  if (type === "join" || type === "new_member") return <div className={`${base} bg-green-100`}><UserPlus className="w-4 h-4 text-green-500" /></div>;
   if (type === "request_approved") return <div className={`${base} bg-emerald-100`}><UserCheck className="w-4 h-4 text-emerald-500" /></div>;
+  if (type === "join_request" || type === "follow_request") return <div className={`${base} bg-amber-100`}><UserPlus className="w-4 h-4 text-amber-500" /></div>;
+  if (type === "new_follower") return <div className={`${base} bg-purple-100`}><UserCheck className="w-4 h-4 text-purple-500" /></div>;
   return <div className={`${base} bg-orange-100`}><X className="w-4 h-4 text-orange-500" /></div>;
 }
 
@@ -72,7 +78,7 @@ function NotifIcon({ type }: { type: Notification["type"] }) {
 function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>(DUMMY_NOTIFICATIONS);
   const [open, setOpen] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState({ bottom: 0, left: 0 });
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -111,8 +117,8 @@ function NotificationBell() {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       setDropdownPos({
-        bottom: window.innerHeight - rect.top + 8,
-        left: Math.max(8, rect.left),
+        top: rect.bottom + 8,
+        right: Math.max(8, window.innerWidth - rect.right),
       });
     }
     setOpen((prev) => !prev);
@@ -130,7 +136,7 @@ function NotificationBell() {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
-  const handleMarkRead = async (id: number) => {
+  const handleMarkRead = async (id: string | number) => {
     try {
       const token = localStorage.getItem("access_token");
       await fetch(`http://127.0.0.1:8000/api/notifications/${id}/read/`, {
@@ -161,8 +167,8 @@ function NotificationBell() {
           ref={dropdownRef}
           style={{
             position: "fixed",
-            bottom: dropdownPos.bottom,
-            left: dropdownPos.left,
+            top: dropdownPos.top,
+            right: dropdownPos.right,
             width: 320,
             zIndex: 9999,
           }}
@@ -195,25 +201,56 @@ function NotificationBell() {
                   <p className="text-sm text-muted-foreground">No notifications yet</p>
                 </div>
               ) : (
-                notifications.map((n) => (
-                  <button
-                    key={n.id}
-                    onClick={() => { handleMarkRead(n.id); setOpen(false); }}
-                    className={cn(
-                      "w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent",
-                      !n.read && "bg-primary/5"
-                    )}
-                  >
-                    <NotifIcon type={n.type} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs leading-relaxed">{n.message}</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">{n.time}</p>
+                notifications.map((n) => {
+                  const isActionable = n.type === "join_request" || n.type === "follow_request";
+                  return (
+                    <div
+                      key={n.id}
+                      className={cn(
+                        "flex flex-col px-4 py-3 transition-colors",
+                        !n.read && "bg-primary/5"
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <NotifIcon type={n.type} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs leading-relaxed">{n.message}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">{n.time}</p>
+                          {isActionable && (
+                            <div className="flex gap-2 mt-1.5">
+                              <button
+                                onClick={() => {
+                                  const token = localStorage.getItem("access_token");
+                                  const endpoint = n.type === "join_request"
+                                    ? `http://127.0.0.1:8000/api/loops/requests/${n.membership_id}/approve/`
+                                    : `http://127.0.0.1:8000/api/follow-requests/${n.follow_id}/approve/`;
+                                  fetch(endpoint, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+                                  setNotifications(prev => prev.filter(x => x.id !== n.id));
+                                }}
+                                className="text-xs text-primary font-medium hover:opacity-70"
+                              >Approve</button>
+                              <span className="text-xs text-muted-foreground">·</span>
+                              <button
+                                onClick={() => {
+                                  const token = localStorage.getItem("access_token");
+                                  const endpoint = n.type === "join_request"
+                                    ? `http://127.0.0.1:8000/api/loops/requests/${n.membership_id}/deny/`
+                                    : `http://127.0.0.1:8000/api/follow-requests/${n.follow_id}/deny/`;
+                                  fetch(endpoint, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+                                  setNotifications(prev => prev.filter(x => x.id !== n.id));
+                                }}
+                                className="text-xs text-red-500 font-medium hover:opacity-70"
+                              >Deny</button>
+                            </div>
+                          )}
+                        </div>
+                        {!n.read && !isActionable && (
+                          <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0" />
+                        )}
+                      </div>
                     </div>
-                    {!n.read && (
-                      <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0" />
-                    )}
-                  </button>
-                ))
+                  );
+                })
               )}
             </div>
 
@@ -233,9 +270,216 @@ function NotificationBell() {
   );
 }
 
+// ─── Profile Dropdown ─────────────────────────────────────────────────────────
+
+function ProfileDropdown({
+  displayName,
+  initials,
+  isPremium,
+  profilePicUrl,
+  onLogout,
+  router,
+}: {
+  displayName: string;
+  initials: string;
+  isPremium: boolean | null;
+  profilePicUrl?: string | null;
+  onLogout: () => void;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node) &&
+        buttonRef.current && !buttonRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={() => setOpen((prev) => !prev)}
+        className="w-full glass rounded-xl p-3 flex items-center gap-3 hover:bg-accent/50 transition-colors text-left"
+      >
+        <div className="w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0 overflow-hidden">
+          {profilePicUrl
+            ? <img src={profilePicUrl} alt={displayName} className="w-full h-full object-cover" />
+            : initials}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium truncate">{displayName}</div>
+          <div className="text-xs text-muted-foreground">
+            {isPremium === null ? "—" : isPremium ? "Premium" : "Free"}
+          </div>
+        </div>
+        <ChevronUp className={`w-4 h-4 text-muted-foreground transition-transform flex-shrink-0 ${open ? "" : "rotate-180"}`} />
+      </button>
+
+      {open && (
+        <div
+          ref={dropdownRef}
+          className="absolute bottom-full left-0 right-0 mb-2 rounded-2xl overflow-hidden shadow-2xl z-50"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          {/* Profile card header */}
+          <div className="px-4 py-3 border-b border-border/50">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0 overflow-hidden">
+                {profilePicUrl
+                  ? <img src={profilePicUrl} alt={displayName} className="w-full h-full object-cover" />
+                  : initials}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold truncate">{displayName}</p>
+                <p className="text-xs text-muted-foreground">{isPremium ? "Premium member" : "Free plan"}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Menu items */}
+          <div className="py-1">
+            <button
+              onClick={() => { setOpen(false); router.push("/profile"); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent transition-colors text-left"
+            >
+              <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                <User className="w-3.5 h-3.5" />
+              </div>
+              View Profile
+            </button>
+            <button
+              onClick={() => { setOpen(false); router.push("/settings"); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent transition-colors text-left"
+            >
+              <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                <Settings className="w-3.5 h-3.5" />
+              </div>
+              Settings &amp; privacy
+            </button>
+
+            <div className="mx-4 my-1 border-t border-border/50" />
+
+            <button
+              onClick={() => { setOpen(false); onLogout(); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent transition-colors text-left text-red-500"
+            >
+              <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0">
+                <LogOut className="w-3.5 h-3.5 text-red-500" />
+              </div>
+              Log out
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Top Bar Profile Menu ─────────────────────────────────────────────────────
+
+function TopBarProfileMenu({
+  displayName,
+  initials,
+  isPremium,
+  profilePicUrl,
+  onLogout,
+  router,
+}: {
+  displayName: string;
+  initials: string;
+  isPremium: boolean | null;
+  profilePicUrl?: string | null;
+  onLogout: () => void;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    function handleOutside(e: MouseEvent) {
+      if (
+        menuRef.current && !menuRef.current.contains(e.target as Node) &&
+        buttonRef.current && !buttonRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={() => setOpen((p) => !p)}
+        className="w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm overflow-hidden flex-shrink-0 ring-2 ring-background hover:ring-primary/30 transition-all"
+      >
+        {profilePicUrl
+          ? <img src={profilePicUrl} alt={displayName} className="w-full h-full object-cover" />
+          : initials}
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          className="absolute right-0 top-full mt-2 w-52 rounded-2xl shadow-2xl z-50 overflow-hidden"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0 overflow-hidden">
+              {profilePicUrl
+                ? <img src={profilePicUrl} alt={displayName} className="w-full h-full object-cover" />
+                : initials}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate">{displayName}</p>
+              <p className="text-xs text-muted-foreground">{isPremium ? "Premium" : "Free"}</p>
+            </div>
+          </div>
+          <div className="py-1">
+            <button onClick={() => { setOpen(false); router.push("/profile"); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent transition-colors text-left">
+              <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                <User className="w-3.5 h-3.5" />
+              </div>
+              View Profile
+            </button>
+            <button onClick={() => { setOpen(false); router.push("/settings"); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent transition-colors text-left">
+              <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                <Settings className="w-3.5 h-3.5" />
+              </div>
+              Settings &amp; privacy
+            </button>
+            <div className="mx-4 my-1 border-t border-border/50" />
+            <button onClick={() => { setOpen(false); onLogout(); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent transition-colors text-left text-red-500">
+              <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0">
+                <LogOut className="w-3.5 h-3.5 text-red-500" />
+              </div>
+              Log out
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────────────────────
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children, headerLeft }: { children: React.ReactNode; headerLeft?: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -244,6 +488,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [isPremium, setIsPremium] = useState<boolean | null>(null);
   const [displayPoints, setDisplayPoints] = useState(0);
   const [pillVisible, setPillVisible] = useState(false);
+  const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -256,6 +501,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         setAvailablePoints(d.available_points ?? 0);
         setIsPremium(d.is_premium ?? false);
       })
+      .catch(() => {});
+    fetch("http://127.0.0.1:8000/api/profile/", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(d => { if (d.profile_picture_url) setProfilePicUrl(d.profile_picture_url); })
       .catch(() => {});
   }, []);
 
@@ -352,27 +603,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* ── User profile — NO bell here ── */}
-          <div className="glass rounded-xl p-3 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
-              {initials}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{displayName}</div>
-              <div className="text-xs text-muted-foreground">
-                {isPremium === null ? "—" : isPremium ? "Premium" : "Free"}
-              </div>
-            </div>
-            <button onClick={handleLogout}
-              className="text-muted-foreground hover:text-red-500 transition-colors" title="Logout">
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
+          {/* ── Profile dropdown ── */}
+          <ProfileDropdown
+            displayName={displayName}
+            initials={initials}
+            isPremium={isPremium}
+            profilePicUrl={profilePicUrl}
+            onLogout={handleLogout}
+            router={router}
+          />
         </div>
       </aside>
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
+        {/* Mobile header */}
         <header className="lg:hidden sticky top-0 z-30 glass-strong m-3 rounded-2xl px-4 py-3 flex items-center justify-between">
           <Link href="/dashboard" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg gradient-bg flex items-center justify-center">
@@ -381,11 +626,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="font-semibold">Momentm</span>
           </Link>
           <div className="flex items-center gap-2">
+            <NotificationBell />
             <button onClick={() => setOpen(!open)} className="p-2 rounded-lg hover:bg-accent">
               {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
         </header>
+        {/* Desktop top bar */}
+        <div className="hidden lg:flex sticky top-0 z-20 items-center justify-between gap-2 px-6 py-3 border-b border-border/20 bg-background/60 backdrop-blur-sm">
+          <div>{headerLeft}</div>
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+          </div>
+        </div>
         <main className="flex-1 p-4 lg:p-8 max-w-[1400px] w-full mx-auto">{children}</main>
       </div>
 

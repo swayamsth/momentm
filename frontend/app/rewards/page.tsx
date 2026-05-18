@@ -122,12 +122,13 @@ export default function RewardsPage() {
   const byType = (type: string) => claims.filter(c => c.reward_type === type);
 
   return (
-    <AppShell>
+    <AppShell headerLeft={
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight leading-none">My Rewards</h1>
+        <p className="text-xs text-muted-foreground mt-0.5">{"Everything you've claimed — codes, perks, and active cosmetics."}</p>
+      </div>
+    }>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">My Rewards</h1>
-          <p className="text-sm text-muted-foreground">Everything you've claimed — codes, perks, and active cosmetics.</p>
-        </div>
 
         {loading ? (
           <div className="space-y-3">
