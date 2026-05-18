@@ -173,22 +173,6 @@ def logout_view(request):
         return Response({'error': 'Invalid token.'}, status=status.HTTP_400_BAD_REQUEST)
 
 
-@api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
-def delete_account_view(request):
-    try:
-        refresh_token = request.data.get('refresh')
-        if refresh_token:
-            try:
-                RefreshToken(refresh_token).blacklist()
-            except Exception:
-                pass
-        request.user.delete()
-        return Response({'message': 'Account deleted successfully.'})
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def dashboard_view(request):

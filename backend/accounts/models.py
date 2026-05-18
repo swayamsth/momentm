@@ -42,9 +42,6 @@ class PasswordResetToken(models.Model):
 
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    bio = models.TextField(null=True, blank=True)
-    is_public = models.BooleanField(default=True)
-    avatar_url = models.URLField(null=True, blank=True)
     two_factor_enabled = models.BooleanField(default=False)
     two_factor_otp = models.CharField(max_length=6, blank=True, null=True)
     two_factor_otp_created_at = models.DateTimeField(blank=True, null=True)

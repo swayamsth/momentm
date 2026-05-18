@@ -13,8 +13,6 @@ import {
   Crown, ArrowLeft,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { usePremium } from "@/hooks/usePremium";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
 
@@ -174,7 +172,7 @@ function LoopAvatar({ loop, size = "md" }: { loop: Loop; size?: "sm" | "md" | "l
 
 // ─── Upgrade Modal ────────────────────────────────────────────────────────────
 
-function UpgradeModal({ onClose, onUpgrade }: { onClose: () => void; onUpgrade: () => void }) {
+function UpgradeModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-foreground/20 backdrop-blur-sm" onClick={onClose} />
@@ -189,7 +187,7 @@ function UpgradeModal({ onClose, onUpgrade }: { onClose: () => void; onUpgrade: 
           </p>
         </div>
         <div className="space-y-2">
-          <Button className="w-full gradient-bg border-0" onClick={onUpgrade}>
+          <Button className="w-full gradient-bg border-0" onClick={onClose}>
             <Crown className="w-4 h-4 mr-2" /> Upgrade to Premium
           </Button>
           <Button variant="outline" className="w-full" onClick={onClose}>Maybe later</Button>
@@ -485,8 +483,6 @@ function EditLoopModal({ loop, onClose, onSave }: {
 // ─── Create Loop Modal ────────────────────────────────────────────────────────
 
 function CreateLoopModal({ onClose, onCreate }: { onClose: () => void; onCreate: (loop: Loop) => void }) {
-  const { isPremium } = usePremium();
-  const router = useRouter();
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [tag, setTag] = useState("Running");
@@ -513,11 +509,7 @@ function CreateLoopModal({ onClose, onCreate }: { onClose: () => void; onCreate:
         setSuccess(true);
         setTimeout(onClose, 1200);
       } else if (data.error === "LOOP_LIMIT_REACHED") {
-        if (isPremium) {
-          setError("Server loop limit reached. Please contact support.");
-        } else {
-          setShowUpgrade(true);
-        }
+        setShowUpgrade(true);
       } else {
         setError(data.error || "Failed to create loop.");
       }
@@ -527,9 +519,7 @@ function CreateLoopModal({ onClose, onCreate }: { onClose: () => void; onCreate:
     setLoading(false);
   };
 
-  if (showUpgrade) return (
-    <UpgradeModal onClose={onClose} onUpgrade={() => router.push("/payment?plan=premium")} />
-  );
+  if (showUpgrade) return <UpgradeModal onClose={onClose} />;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

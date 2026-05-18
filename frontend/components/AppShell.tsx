@@ -59,7 +59,7 @@ function loadUser(): User | null {
 // ─── Notification icon ────────────────────────────────────────────────────────
 
 function NotifIcon({ type }: { type: Notification["type"] }) {
-  const base = "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0";
+  const base = "w-8 h-8 rounded-full flex items-center justify-center shrink-0";
   if (type === "like") return <div className={`${base} bg-red-100`}><Heart className="w-4 h-4 text-red-500" /></div>;
   if (type === "comment") return <div className={`${base} bg-blue-100`}><MessageCircle className="w-4 h-4 text-blue-500" /></div>;
   if (type === "join") return <div className={`${base} bg-green-100`}><UserPlus className="w-4 h-4 text-green-500" /></div>;
@@ -210,7 +210,7 @@ function NotificationBell() {
                       <p className="text-[11px] text-muted-foreground mt-0.5">{n.time}</p>
                     </div>
                     {!n.read && (
-                      <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0" />
+                      <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
                     )}
                   </button>
                 ))
@@ -244,22 +244,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [isPremium, setIsPremium] = useState<boolean | null>(null);
   const [displayPoints, setDisplayPoints] = useState(0);
   const [pillVisible, setPillVisible] = useState(false);
+  const [activeCosmetics, setActiveCosmetics] = useState<{effect: string; name: string}[]>([]);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(() => {
+    try { return localStorage.getItem("avatar_url"); } catch { return null; }
+  });
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("momentm_premium");
-      if (raw) {
-        const { expiresAt, email } = JSON.parse(raw);
-        const stored = localStorage.getItem("user");
-        const currentEmail = stored ? JSON.parse(stored).email : null;
-        const emailMatches = email && currentEmail && email === currentEmail;
-        if (emailMatches) {
-          const days = Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-          if (days > 0) setIsPremium(true);
-        }
-      }
-    } catch {}
+    const onCosmetics = () => {
+      try {
+        const stored = localStorage.getItem("active_cosmetics");
+        if (stored) setActiveCosmetics(JSON.parse(stored));
+      } catch {}
+    };
+    const onAvatar = () => {
+      const url = localStorage.getItem("avatar_url");
+      if (url) setAvatarUrl(url);
+    };
+    window.addEventListener("cosmetics-updated", onCosmetics);
+    window.addEventListener("avatar-updated", onAvatar);
+    return () => {
+      window.removeEventListener("cosmetics-updated", onCosmetics);
+      window.removeEventListener("avatar-updated", onAvatar);
+    };
+  }, []);
 
+  useEffect(() => {
     const token = localStorage.getItem("access_token");
     if (!token) return;
     fetch("http://127.0.0.1:8000/api/rewards/", {
@@ -268,12 +277,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .then(r => r.json())
       .then(d => {
         setAvailablePoints(d.available_points ?? 0);
-        if (d.is_premium) setIsPremium(true);
-        else setIsPremium(prev => prev ?? false);
+        setIsPremium(d.is_premium ?? false);
+        const cosmetics = d.active_cosmetics ?? [];
+        setActiveCosmetics(cosmetics);
+        localStorage.setItem("active_cosmetics", JSON.stringify(cosmetics));
+        setAvatarUrl(d.avatar_url ?? null);
+        if (d.avatar_url) {
+          localStorage.setItem("avatar_url", d.avatar_url);
+        } else {
+          localStorage.removeItem("avatar_url");
+        }
       })
-      .catch(() => {
-        setIsPremium(prev => prev ?? false);
-      });
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -310,6 +325,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
     localStorage.removeItem("user");
+    localStorage.removeItem("avatar_url");
+    localStorage.removeItem("active_cosmetics");
     router.push("/");
   };
 
@@ -369,20 +386,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* ── User profile — NO bell here ── */}
+          {/* ── User profile ── */}
           <div className="glass rounded-xl p-3 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0">
-              {initials}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{displayName}</div>
-              <div className="text-xs text-muted-foreground">
-                {isPremium === null ? "—" : isPremium ? "Premium" : "Free"}
+            <Link href="/profile" className="flex items-center gap-3 flex-1 min-w-0 rounded-lg hover:bg-accent transition-colors -mx-1 px-1 py-1">
+              <div className={cn(
+                "w-9 h-9 rounded-full overflow-hidden shrink-0",
+                !avatarUrl && "gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm",
+                activeCosmetics.some(c => c.effect === "streak_flame") && "cosmetic-avatar-flame",
+                !activeCosmetics.some(c => c.effect === "streak_flame") && activeCosmetics.some(c => c.effect === "profile_badge") && "cosmetic-avatar-badge",
+              )}>
+                {avatarUrl
+                  ? <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                  : initials
+                }
               </div>
-            </div>
-            <button onClick={handleLogout}
-              className="text-muted-foreground hover:text-red-500 transition-colors" title="Logout">
-              <LogOut className="w-4 h-4" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium leading-tight wrap-break-word flex items-center gap-1.5 flex-wrap">
+                  {displayName}
+                  {activeCosmetics.find(c => c.effect === "leaderboard_title") && (
+                    <span className="cosmetic-title">{activeCosmetics.find(c => c.effect === "leaderboard_title")!.name}</span>
+                  )}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {isPremium === null ? "—" : isPremium ? "Premium" : "Free"}
+                </div>
+              </div>
+            </Link>
+            <button
+              onClick={handleLogout}
+              title="Logout"
+              className="relative group shrink-0 w-8 h-8 flex items-center justify-center"
+            >
+              <span className="absolute inset-0 rounded-full bg-red-500/0 scale-0 group-hover:bg-red-500/12 group-hover:scale-100 transition-all duration-200 ease-out" />
+              <LogOut className="w-4 h-4 text-muted-foreground group-hover:text-red-500 transition-colors duration-200 relative z-10" />
             </button>
           </div>
         </div>
