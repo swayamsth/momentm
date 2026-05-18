@@ -231,7 +231,7 @@ function Row({ u }: { u: LeaderboardUser }) {
   );
 
   if (u.you || !u.user_id) return row;
-  return <UserQuickView userId={u.user_id}>{row}</UserQuickView>;
+  return <UserQuickView userId={u.user_id} className="block">{row}</UserQuickView>;
 }
 
 export default function LeaderboardPage() {

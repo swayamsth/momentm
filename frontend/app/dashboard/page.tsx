@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Footprints, Flame, Moon, TrendingUp, Plus, Clock, Dumbbell, Salad, ArrowRight, Utensils,
+  Footprints, Flame, Moon, TrendingUp, Plus, Dumbbell, Salad, ArrowRight, Utensils,
 } from "lucide-react";
 import {
   AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -593,48 +593,38 @@ function Dashboard() {
 
         {/* Recent Activities */}
         {activities.length > 0 && (
-          <Card className="glass border-0 p-6">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center shadow-[var(--shadow-glow)]">
-                <Dumbbell className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <div>
-                <h3 className="font-semibold">Recent activities</h3>
-                <p className="text-xs text-muted-foreground">Your last {Math.min(activities.length, 5)} logged sessions</p>
-              </div>
+          <Card className="glass border-0 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-xs text-muted-foreground uppercase tracking-widest">Recent activity</div>
+              <Dumbbell className="w-4 h-4 text-muted-foreground/50" />
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {activities.slice(0, 5).map((log) => (
-                <div key={log.id} className="glass rounded-xl p-4 flex flex-wrap items-center gap-4">
-                  <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center flex-shrink-0">
-                    <Footprints className="w-4 h-4 text-primary-foreground" />
-                  </div>
-                  <div className="flex-1 min-w-[140px]">
+                <div key={log.id} className="flex items-center justify-between py-2.5 border-b border-border/40 last:border-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <div className="text-sm font-medium">{log.activity}</div>
+                      <div className="text-sm font-medium tabular-nums">{log.activity}</div>
                       {log.verification_status === "verified" && (
-                        <Badge className="text-[10px] bg-green-100 text-green-700 border-0">✓ Verified</Badge>
+                        <Badge className="text-[10px] bg-green-100 text-green-700 border-0 px-1.5">✓</Badge>
                       )}
                       {log.verification_status === "rejected" && (
-                        <Badge className="text-[10px] bg-red-100 text-red-700 border-0">✗ Unverified</Badge>
+                        <Badge className="text-[10px] bg-red-100 text-red-700 border-0 px-1.5">✗</Badge>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                      <Clock className="w-3 h-3" /> {log.logged_at}
-                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">{log.logged_at}</div>
                   </div>
-                  <div className="flex gap-4 text-sm">
-                    <div className="text-center">
-                      <div className="font-semibold">{log.duration}<span className="text-xs text-muted-foreground ml-0.5">min</span></div>
-                      <div className="text-xs text-muted-foreground">Duration</div>
+                  <div className="flex gap-5 text-right shrink-0">
+                    <div>
+                      <div className="text-sm font-semibold tabular-nums">{log.duration}<span className="text-xs text-muted-foreground ml-0.5">min</span></div>
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Duration</div>
                     </div>
-                    <div className="text-center">
-                      <div className="font-semibold">{log.steps.toLocaleString()}<span className="text-xs text-muted-foreground ml-0.5">{ACTIVITY_METRICS[log.activity]?.unit ?? "steps"}</span></div>
-                      <div className="text-xs text-muted-foreground">{ACTIVITY_METRICS[log.activity]?.label ?? "Steps"}</div>
+                    <div>
+                      <div className="text-sm font-semibold tabular-nums">{log.steps.toLocaleString()}<span className="text-xs text-muted-foreground ml-0.5">{ACTIVITY_METRICS[log.activity]?.unit ?? "steps"}</span></div>
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{ACTIVITY_METRICS[log.activity]?.label ?? "Steps"}</div>
                     </div>
-                    <div className="text-center">
-                      <div className="font-semibold">{log.calories}<span className="text-xs text-muted-foreground ml-0.5">kcal</span></div>
-                      <div className="text-xs text-muted-foreground">Calories</div>
+                    <div>
+                      <div className="text-sm font-semibold tabular-nums">{log.calories}<span className="text-xs text-muted-foreground ml-0.5">kcal</span></div>
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Calories</div>
                     </div>
                   </div>
                 </div>

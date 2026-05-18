@@ -118,9 +118,11 @@ function MiniCard({ profile, onFollow, followLoading, onViewProfile }: {
 export function UserQuickView({
   userId,
   children,
+  className = "inline-block",
 }: {
   userId: number | string;
   children: React.ReactNode;
+  className?: string;
 }) {
   const router = useRouter();
   const [profile, setProfile] = useState<QuickProfile | null>(null);
@@ -164,7 +166,7 @@ export function UserQuickView({
       <HoverCard openDelay={300} closeDelay={100}>
         <HoverCardTrigger asChild>
           <span
-            className="inline-block"
+            className={className}
             onMouseEnter={fetchProfile}
             onClick={(e) => {
               if (window.matchMedia("(pointer: coarse)").matches) {
