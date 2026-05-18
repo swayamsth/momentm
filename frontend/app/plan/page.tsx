@@ -7,19 +7,36 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import {
   CalendarDays, ChevronDown, ChevronUp, Check, X,
-  Dumbbell, BedDouble, Salad, Pencil, Loader2, Sparkles,
+  Dumbbell, BedDouble, Salad, Pencil, Loader2, Sparkles, Utensils,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 type Drill = { name: string; sets?: number; duration_min?: number; rest_min?: number; notes?: string };
 type Day = { day: string; is_rest: boolean; session_type: string; duration_min?: number; drills?: Drill[]; note?: string };
-type PlanData = { summary: string; target_sessions: number; days: Day[]; nutrition: string[] };
+type PlanData = { goal_title?: string; summary: string; target_sessions: number; days: Day[]; nutrition: string[] };
 type Plan = { id: number; week_number: number; week_start: string; status: string; is_recalibration: boolean; recalibration_note: string; plan_data: PlanData };
 type Goal = { id: number; goal_text: string; timeframe_days: number; start_date: string; end_date: string; days_remaining: number };
 type PlanResponse = { has_goal: boolean; goal?: Goal; current_plan?: Plan; past_plans?: Plan[]; is_premium?: boolean };
+type NutritionLog = { calories: number; protein: number; carbs: number; fats: number; date: string };
+type FitnessProfile = { age: number | null; weight_kg: number | null; days_per_week: number };
+
+function computeTDEE(fp: FitnessProfile): number | null {
+  if (!fp.weight_kg) return null;
+  const bmr = 10 * fp.weight_kg + 6.25 * 170 - 5 * (fp.age ?? 25);
+  const mult = fp.days_per_week <= 1 ? 1.2 : fp.days_per_week <= 3 ? 1.375 : fp.days_per_week <= 5 ? 1.55 : 1.725;
+  return Math.round(bmr * mult);
+}
+
+function computeMacroTargets(weight: number, tdee: number) {
+  const protein = Math.round(weight * 1.8);
+  const fat = Math.round(tdee * 0.25 / 9);
+  const carbs = Math.round((tdee - protein * 4 - fat * 9) / 4);
+  return { protein, carbs, fat };
+}
 
 export default function PlanPage() {
   const [data, setData] = useState<PlanResponse | null>(null);
@@ -32,16 +49,30 @@ export default function PlanPage() {
   const [goalText, setGoalText] = useState("");
   const [timeframeValue, setTimeframeValue] = useState("3");
   const [timeframeUnit, setTimeframeUnit] = useState<"weeks" | "months">("months");
+  const [nutritionToday, setNutritionToday] = useState<NutritionLog | null>(null);
+  const [fitnessProfile, setFitnessProfile] = useState<FitnessProfile | null>(null);
+  const [weeklyActivityCount, setWeeklyActivityCount] = useState(0);
 
   const token = () => localStorage.getItem("access_token") ?? "";
 
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/api/plan/", {
-      headers: { Authorization: `Bearer ${token()}` },
-    })
-      .then(r => r.json())
-      .then(d => { setData(d); if (!d.has_goal) setShowSetup(true); })
-      .catch(() => toast.error("Failed to load plan."))
+    const t = token();
+    const headers = { Authorization: `Bearer ${t}` };
+    Promise.all([
+      fetch("http://127.0.0.1:8000/api/plan/", { headers }).then(r => r.json()),
+      fetch("http://127.0.0.1:8000/api/nutrition/", { headers }).then(r => r.ok ? r.json() : []),
+      fetch("http://127.0.0.1:8000/api/fitness-profile/", { headers }).then(r => r.ok ? r.json() : null),
+      fetch("http://127.0.0.1:8000/api/activities/", { headers }).then(r => r.ok ? r.json() : []),
+    ]).then(([plan, nutrition, fp, activities]) => {
+      setData(plan);
+      if (!plan.has_goal) setShowSetup(true);
+      const today = new Date().toISOString().split("T")[0];
+      setNutritionToday(Array.isArray(nutrition) ? nutrition.find((n: NutritionLog) => n.date === today) ?? null : null);
+      setFitnessProfile(fp);
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      setWeeklyActivityCount(Array.isArray(activities) ? activities.filter((a: { logged_at: string }) => new Date(a.logged_at) >= weekAgo).length : 0);
+    }).catch(() => toast.error("Failed to load plan."))
       .finally(() => setLoading(false));
   }, []);
 
@@ -211,16 +242,26 @@ export default function PlanPage() {
   const weeksTotal = goal ? Math.ceil(goal.timeframe_days / 7) : 0;
   const weeksDone = goal ? weeksTotal - Math.ceil(goal.days_remaining / 7) : 0;
 
+  const tdee = fitnessProfile ? computeTDEE(fitnessProfile) : null;
+  const macroTargets = fitnessProfile?.weight_kg && tdee ? computeMacroTargets(fitnessProfile.weight_kg, tdee) : null;
+  const targetSessions = activePlan?.plan_data?.target_sessions ?? 4;
+
   return (
     <AppShell>
-      <div className="max-w-2xl space-y-6">
+      <div className="grid lg:grid-cols-[1fr_272px] gap-6 items-start">
+      <div className="space-y-6">
 
         {/* ── Goal header ── */}
         <Card className="glass-strong border-0 p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
               <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Active Goal</p>
-              <h1 className="text-xl font-semibold leading-snug">{goal?.goal_text}</h1>
+              <h1 className="text-xl font-semibold leading-snug">
+                {current_plan?.plan_data?.goal_title ?? goal?.goal_text}
+              </h1>
+              {current_plan?.plan_data?.goal_title && (
+                <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{goal?.goal_text}</p>
+              )}
               <div className="flex items-center gap-3 mt-3 flex-wrap">
                 <span className="text-xs text-muted-foreground flex items-center gap-1">
                   <CalendarDays className="w-3 h-3" /> {goal?.days_remaining} days remaining
@@ -324,6 +365,110 @@ export default function PlanPage() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* ── Sidebar ── */}
+      <div className="space-y-4 lg:sticky lg:top-6">
+
+        {/* Progress card */}
+        <Card className="glass-strong border-0 p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <CalendarDays className="w-4 h-4 text-primary" />
+            <span className="text-sm font-semibold">Goal Progress</span>
+          </div>
+
+          {/* Progress ring */}
+          <div className="flex items-center gap-4">
+            <div className="relative shrink-0">
+              <svg width={72} height={72} className="-rotate-90">
+                <circle cx={36} cy={36} r={28} fill="none" stroke="var(--border)" strokeWidth={6} />
+                <circle cx={36} cy={36} r={28} fill="none"
+                  stroke="oklch(0.6 0.22 255)" strokeWidth={6} strokeLinecap="round"
+                  strokeDasharray={2 * Math.PI * 28}
+                  strokeDashoffset={2 * Math.PI * 28 * (1 - Math.min(1, (weeksDone / weeksTotal)))}
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center text-xs font-semibold">
+                {Math.round((weeksDone / weeksTotal) * 100)}%
+              </div>
+            </div>
+            <div className="space-y-1 text-sm">
+              <div><span className="font-semibold">{goal?.days_remaining}</span> <span className="text-muted-foreground text-xs">days left</span></div>
+              <div><span className="font-semibold">Week {weeksDone + 1}</span> <span className="text-muted-foreground text-xs">of {weeksTotal}</span></div>
+            </div>
+          </div>
+
+          {/* Sessions this week */}
+          <div>
+            <div className="flex items-center justify-between text-xs mb-1.5">
+              <span className="text-muted-foreground">Sessions this week</span>
+              <span className="font-semibold">{weeklyActivityCount} / {targetSessions}</span>
+            </div>
+            <Progress value={Math.min(100, (weeklyActivityCount / targetSessions) * 100)} />
+          </div>
+        </Card>
+
+        {/* Nutrition card */}
+        {tdee ? (
+          <Card className="glass-strong border-0 p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <Utensils className="w-4 h-4 text-green-500" />
+              <span className="text-sm font-semibold">Today's Nutrition</span>
+            </div>
+
+            {nutritionToday ? (
+              <>
+                {/* Calories */}
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1.5">
+                    <span className="text-muted-foreground">Calories</span>
+                    <span className="font-semibold">{nutritionToday.calories.toLocaleString()} <span className="text-muted-foreground font-normal">/ {tdee.toLocaleString()} kcal</span></span>
+                  </div>
+                  <Progress value={Math.min(100, (nutritionToday.calories / tdee) * 100)} />
+                </div>
+
+                {/* Macros */}
+                {macroTargets && (
+                  <div className="space-y-2.5">
+                    {([
+                      { label: "Protein", actual: nutritionToday.protein, target: macroTargets.protein, color: "bg-blue-500" },
+                      { label: "Carbs",   actual: nutritionToday.carbs,   target: macroTargets.carbs,   color: "bg-orange-400" },
+                      { label: "Fat",     actual: nutritionToday.fats,    target: macroTargets.fat,     color: "bg-yellow-400" },
+                    ] as const).map(m => (
+                      <div key={m.label}>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="text-muted-foreground">{m.label}</span>
+                          <span className="font-medium">{m.actual}g <span className="text-muted-foreground font-normal">/ {m.target}g</span></span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-border overflow-hidden">
+                          <div className={cn("h-full rounded-full transition-all", m.color)} style={{ width: `${Math.min(100, (m.actual / m.target) * 100)}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-2 space-y-1">
+                <p className="text-xs text-muted-foreground">Nothing logged today</p>
+                <p className="text-xs text-muted-foreground">Target: <span className="font-medium text-foreground">{tdee.toLocaleString()} kcal</span></p>
+                {macroTargets && (
+                  <p className="text-xs text-muted-foreground">{macroTargets.protein}g protein · {macroTargets.carbs}g carbs · {macroTargets.fat}g fat</p>
+                )}
+              </div>
+            )}
+          </Card>
+        ) : (
+          <Card className="glass border-0 p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <Utensils className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-semibold">Nutrition Targets</span>
+            </div>
+            <p className="text-xs text-muted-foreground">Set your age and weight in <a href="/settings" className="text-primary hover:underline">settings</a> to see personalised calorie and macro targets.</p>
+          </Card>
+        )}
+
+      </div>
       </div>
     </AppShell>
   );

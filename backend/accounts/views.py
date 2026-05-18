@@ -1411,21 +1411,78 @@ def get_nutrition_view(request):
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def profile_view(request):
+    from django.utils import timezone
+
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
+
     if request.method == 'PATCH':
-        bio = request.data.get('bio', profile.bio)
-        is_public = request.data.get('is_public', profile.is_public)
-        profile.bio = bio
-        profile.is_public = is_public
+        first_name = request.data.get('first_name', request.user.first_name)
+        last_name = request.data.get('last_name', request.user.last_name)
+        request.user.first_name = first_name
+        request.user.last_name = last_name
+        request.user.save(update_fields=['first_name', 'last_name'])
+        profile.bio = request.data.get('bio', profile.bio)
+        profile.is_public = request.data.get('is_public', profile.is_public)
         profile.save()
+
+    total_points = get_available_points(request.user, profile)
+    total_activities = ActivityLog.objects.filter(user=request.user).count()
+    loops_joined = LoopMembership.objects.filter(user=request.user, status='approved').select_related('loop')
+
+    activity_dates = set(
+        ActivityLog.objects.filter(user=request.user)
+        .values_list('logged_at__date', flat=True)
+    )
+    best_streak = 0
+    streak = 0
+    check = timezone.now().date()
+    while check in activity_dates:
+        streak += 1
+        check -= __import__('datetime').timedelta(days=1)
+    best_streak = streak
+
+    cosmetics = ClaimedReward.objects.filter(
+        user=request.user, reward__type='cosmetic'
+    ).select_related('reward').order_by('-claimed_at')
+
+    full_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.email.split('@')[0]
+
     return Response({
         'email': request.user.email,
         'first_name': request.user.first_name,
         'last_name': request.user.last_name,
+        'full_name': full_name,
         'bio': profile.bio,
         'is_public': profile.is_public,
         'avatar_url': profile.avatar_url,
         'is_premium': profile.is_premium_active,
+        'member_since': request.user.date_joined.strftime('%b %Y'),
+        'stats': {
+            'total_points': total_points,
+            'total_activities': total_activities,
+            'best_streak': best_streak,
+            'loops_count': loops_joined.count(),
+        },
+        'cosmetics': [
+            {
+                'id': c.id,
+                'name': c.reward.name,
+                'effect': c.reward.effect,
+                'icon': c.reward.icon,
+                'color': c.reward.color,
+                'is_active': c.is_equipped,
+                'claimed_at': c.claimed_at.strftime('%b %d, %Y'),
+            }
+            for c in cosmetics
+        ],
+        'loops': [
+            {
+                'id': m.loop.id,
+                'name': m.loop.name,
+                'image_url': m.loop.image_url,
+            }
+            for m in loops_joined
+        ],
     })
 
 
@@ -1626,6 +1683,65 @@ def _get_nutrition_context(user):
     }
 
 
+def _compute_nutrition_targets(fitness_profile):
+    """Return estimated TDEE and macro targets given a fitness profile dict."""
+    if not fitness_profile:
+        return None
+    weight = fitness_profile.get('weight_kg')
+    age = fitness_profile.get('age')
+    days = fitness_profile.get('days_per_week', 4)
+    if not weight:
+        return None
+
+    # Weight-based BMR (neutral, no height/gender needed)
+    bmr = 10 * weight + (6.25 * 170) - (5 * (age or 25))
+
+    activity_multiplier = (
+        1.2 if days <= 1 else
+        1.375 if days <= 3 else
+        1.55 if days <= 5 else
+        1.725
+    )
+    tdee = round(bmr * activity_multiplier)
+
+    # Macro targets: 1.8g protein/kg for active users, 50% carbs, 25% fat
+    protein_g = round(weight * 1.8)
+    protein_kcal = protein_g * 4
+    fat_kcal = round(tdee * 0.25)
+    fat_g = round(fat_kcal / 9)
+    carb_kcal = tdee - protein_kcal - fat_kcal
+    carb_g = round(carb_kcal / 4)
+
+    return {
+        'tdee': tdee,
+        'protein_g': protein_g,
+        'carbs_g': carb_g,
+        'fats_g': fat_g,
+    }
+
+
+def _get_sleep_context(user):
+    from django.utils import timezone
+    import datetime
+    from django.db.models import Avg
+    week_ago = timezone.now().date() - datetime.timedelta(days=7)
+    logs = SleepLog.objects.filter(user=user, date__gte=week_ago)
+    if not logs.exists():
+        return None
+    avg = logs.aggregate(avg_hours=Avg('hours'))['avg_hours'] or 0
+    avg = round(avg, 1)
+    days_logged = logs.count()
+    if avg < 6:
+        quality = "chronically under-slept — high recovery risk"
+    elif avg < 7:
+        quality = "slightly below optimal — may impair performance and recovery"
+    elif avg <= 9:
+        quality = "good — within optimal range"
+    else:
+        quality = "above average — ensure sleep quality not just quantity"
+    return {'avg_hours': avg, 'days_logged': days_logged, 'quality': quality}
+
+
 def _get_fitness_profile_context(user):
     try:
         fp = user.fitness_profile
@@ -1645,7 +1761,7 @@ def _get_fitness_profile_context(user):
         return None
 
 
-def _generate_plan_with_openai(goal_text, timeframe_days, week_number, activity_history=None, prev_completion=None, nutrition_data=None, fitness_profile=None):
+def _generate_plan_with_openai(goal_text, timeframe_days, week_number, activity_history=None, prev_completion=None, nutrition_data=None, fitness_profile=None, sleep_data=None):
     from openai import OpenAI
     import datetime
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -1662,18 +1778,54 @@ Activities logged last week: {', '.join(activity_history) if activity_history el
 Adjust difficulty and targets based on this performance.
 """
 
+    targets = _compute_nutrition_targets(fitness_profile)
+
     nutrition_context = ""
-    if nutrition_data:
+    if nutrition_data and targets:
+        cal_diff = nutrition_data['avg_calories'] - targets['tdee']
+        cal_direction = f"{abs(cal_diff)} kcal {'over' if cal_diff > 0 else 'under'} target"
+        pro_diff = nutrition_data['avg_protein'] - targets['protein_g']
+        pro_direction = f"{abs(pro_diff)}g {'over' if pro_diff > 0 else 'under'} target"
         nutrition_context = f"""
-User's actual nutrition last week (averaged over {nutrition_data['days_logged']} logged days):
+Estimated TDEE: {targets['tdee']} kcal/day
+Daily targets: {targets['tdee']} kcal | {targets['protein_g']}g protein | {targets['carbs_g']}g carbs | {targets['fats_g']}g fat
+
+User's actual average last week ({nutrition_data['days_logged']} logged days):
+- Calories: {nutrition_data['avg_calories']} kcal/day ({cal_direction})
+- Protein: {nutrition_data['avg_protein']}g/day ({pro_direction})
+- Carbs: {nutrition_data['avg_carbs']}g/day (target {targets['carbs_g']}g)
+- Fats: {nutrition_data['avg_fats']}g/day (target {targets['fats_g']}g)
+
+Give specific nutrition tips referencing these exact numbers and gaps. Mention the calorie target and biggest macro gap by name.
+"""
+    elif nutrition_data:
+        nutrition_context = f"""
+User has logged nutrition but no body stats to compute TDEE. Actual average last week:
 - Calories: {nutrition_data['avg_calories']} kcal/day
 - Protein: {nutrition_data['avg_protein']}g/day
 - Carbs: {nutrition_data['avg_carbs']}g/day
 - Fats: {nutrition_data['avg_fats']}g/day
-Give specific, data-driven nutrition feedback comparing their actual intake to what their goal requires.
+Give 2-3 tips referencing their actual numbers relative to common targets for their goal.
+"""
+    elif targets:
+        nutrition_context = f"""
+User has not logged nutrition yet.
+Estimated TDEE: {targets['tdee']} kcal/day
+Recommended targets: {targets['tdee']} kcal | {targets['protein_g']}g protein | {targets['carbs_g']}g carbs | {targets['fats_g']}g fat
+Tell them their calorie and protein targets, and encourage them to start logging meals.
 """
     else:
-        nutrition_context = "User has not logged nutrition yet. Give 2-3 practical nutrition tips relevant to their goal."
+        nutrition_context = "User has no fitness profile or nutrition logs yet. Give 2-3 practical nutrition tips relevant to their goal."
+
+    sleep_context = ""
+    if sleep_data:
+        sleep_context = f"""
+Sleep (last {sleep_data['days_logged']} days): avg {sleep_data['avg_hours']}h/night — {sleep_data['quality']}
+- If sleep is poor, schedule harder sessions earlier in the week when energy is higher, add extra rest or deload days, and include sleep-supporting nutrition tips (magnesium, tryptophan-rich foods, avoid caffeine post-2pm).
+- Adjust session intensity and volume based on recovery capacity indicated by sleep.
+"""
+    else:
+        sleep_context = "Sleep: not logged. Recommend 7-9h sleep for optimal recovery and performance."
 
     if fitness_profile:
         fp = fitness_profile
@@ -1687,10 +1839,11 @@ User profile:
 - Equipment available: {fp['equipment']}
 - Dietary restrictions: {fp['dietary_restrictions']}
 - Injuries/limitations: {fp['injuries']}
+{sleep_context}
 Tailor exercises, intensity, duration, and nutrition strictly to this profile.
 """
     else:
-        profile_context = "User profile: not yet configured — use sensible beginner defaults."
+        profile_context = f"User profile: not yet configured — use sensible beginner defaults.\n{sleep_context}"
 
     prompt = f"""You are an expert fitness and performance coach. A user has set the following goal:
 
@@ -1704,6 +1857,7 @@ Nutrition data:
 
 Generate a detailed training plan for Week {week_number} (Day {day_start}–{day_end}) as a JSON object with exactly this structure:
 {{
+  "goal_title": "3-6 word motivating title for this goal",
   "summary": "one sentence describing this week's focus",
   "target_sessions": <number of training sessions this week>,
   "days": [
@@ -1726,7 +1880,13 @@ Generate a detailed training plan for Week {week_number} (Day {day_start}–{day
     }}
   ],
   "nutrition": [
-    "specific, actionable nutrition tip based on user data"
+    "Calorie & macro target summary with gap analysis if data available",
+    "Pre-workout meal: what to eat, when, and why (specific foods + timing)",
+    "Post-workout recovery: protein window, what to prioritise and why",
+    "Goal-specific micronutrient focus: name the nutrient, why it matters for this goal, and 2-3 food sources",
+    "Rest day nutrition adjustment: how intake should differ on rest days",
+    "Hydration: daily target in litres based on weight and activity level",
+    "Sleep-nutrition link if sleep is poor: specific foods or habits to improve recovery"
   ]
 }}
 
@@ -1738,18 +1898,23 @@ Rules:
 - Use duration_min (integer minutes) and rest_min (integer minutes) for all drills — no string durations
 - Calculate duration_min for the session as: sum of (sets × duration_min) + sum of ((sets - 1) × rest_min) for all drills. Set this as the session's duration_min field
 - Be specific: named drills, sets, durations, rest periods, coaching notes
-- Nutrition: 2-3 tips — if user has logged nutrition data, compare actual vs recommended and give specific numbers
+- Nutrition: include ALL 7 tips listed in the structure above. Each tip must be a complete, actionable sentence referencing the user's actual data where available. Include specific numbers, food names, and timing. Respect dietary restrictions.
+- If sleep data shows poor sleep, add a dedicated tip about sleep-supporting nutrition
 - Progress difficulty for week {week_number} of {total_weeks} total
+- goal_title: 3-6 words, capitalize key words, make it punchy and specific to the goal (e.g. "Boxing From Zero", "10K Running Base", "90-Day Strength Build")
 - Respond with ONLY the JSON object, no markdown, no extra text"""
 
     response = client.chat.completions.create(
         model="gpt-4o",
         temperature=0.4,
-        max_tokens=2500,
+        max_tokens=3500,
         messages=[{"role": "user", "content": prompt}],
     )
     import json
     raw = response.choices[0].message.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+        raw = raw.rsplit("```", 1)[0].strip()
     return json.loads(raw)
 
 
@@ -1806,12 +1971,14 @@ def plan_setup_view(request):
 
     nutrition_data = _get_nutrition_context(request.user)
     fitness_profile = _get_fitness_profile_context(request.user)
+    sleep_data = _get_sleep_context(request.user)
 
     try:
         plan_data = _generate_plan_with_openai(
             goal_text, timeframe_days, week_number=1,
             nutrition_data=nutrition_data,
             fitness_profile=fitness_profile,
+            sleep_data=sleep_data,
         )
     except Exception as e:
         goal.delete()
@@ -1896,6 +2063,7 @@ def plan_recalibrate_view(request):
 
     nutrition_data = _get_nutrition_context(request.user)
     fitness_profile = _get_fitness_profile_context(request.user)
+    sleep_data = _get_sleep_context(request.user)
 
     try:
         plan_data = _generate_plan_with_openai(
@@ -1906,6 +2074,7 @@ def plan_recalibrate_view(request):
             prev_completion=prev_completion,
             nutrition_data=nutrition_data,
             fitness_profile=fitness_profile,
+            sleep_data=sleep_data,
         )
     except Exception as e:
         return Response({'error': f'Failed to generate recalibration: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
