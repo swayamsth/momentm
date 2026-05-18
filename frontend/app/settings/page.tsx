@@ -1,8 +1,9 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Activity, ArrowLeft } from "lucide-react";
+import { Activity, ArrowLeft, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -10,6 +11,7 @@ export default function SettingsPage() {
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -53,6 +55,20 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDeleteAccount = async () => {
+    try {
+      const token = localStorage.getItem("access_token");
+      const refresh = localStorage.getItem("refresh_token");
+      await fetch("http://127.0.0.1:8000/api/delete-account/", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ refresh }),
+      }).catch(() => {});
+    } catch { /* proceed regardless */ }
+    localStorage.clear();
+    router.push("/");
   };
 
   if (!user) return null;
@@ -102,7 +118,48 @@ export default function SettingsPage() {
           </div>
           {message && <p className="text-xs text-primary mt-3">{message}</p>}
         </div>
+
+        {/* Danger zone */}
+        <div className="glass rounded-xl p-4 border border-red-200/50">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-red-600">Delete account</p>
+              <p className="text-xs text-muted-foreground mt-1">Permanently delete your account and all data</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 className="w-4 h-4 mr-1.5" /> Delete
+            </Button>
+          </div>
+        </div>
       </div>
+
+      <Dialog open={deleteOpen} onOpenChange={(o) => { if (!o) setDeleteOpen(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <Trash2 className="w-5 h-5" /> Delete Account
+            </DialogTitle>
+            <DialogDescription className="text-sm pt-1">
+              Are you sure you want to delete your account? This is permanent and cannot be undone.
+              All your data, loops, and activity history will be deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 mt-4">
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleDeleteAccount}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              <Trash2 className="w-4 h-4 mr-1" /> Yes, delete my account
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
