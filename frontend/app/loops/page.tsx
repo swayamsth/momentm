@@ -5,9 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
 import {
-  Heart, MessageCircle, Users, Target, Search,
+  Heart, MessageCircle, Users, Search,
   Plus, Loader2, Send, X, Lock, Globe, Pencil, Check, Trash2,
   UserCheck, UserX, ImageIcon, ZoomIn, Calendar, ChevronDown,
   Crown, ArrowLeft, TrendingUp, Flame, Camera, Utensils, Zap,
@@ -29,13 +28,6 @@ const TAG_COLORS: Record<string, string> = {
   Sleep: "oklch(0.65 0.18 220)",
   Other: "oklch(0.6 0.08 250)",
 };
-
-const challengesData = [
-  { name: "March Mile-A-Day", loop: "5AM Run Club", progress: 68, goal: "31 miles total", participants: 240, color: "oklch(0.6 0.22 255)" },
-  { name: "100k Steps Week", loop: "Cycle 100", progress: 42, goal: "100,000 group steps", participants: 86, color: "oklch(0.7 0.16 155)" },
-  { name: "21-Day Meditation", loop: "Mindful Mornings", progress: 85, goal: "21 sessions", participants: 412, color: "oklch(0.55 0.18 300)" },
-  { name: "Push-Up October", loop: "Strength 200", progress: 23, goal: "10,000 group push-ups", participants: 145, color: "oklch(0.62 0.22 25)" },
-];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1465,8 +1457,8 @@ export default function LoopsPage() {
         <p className="text-xs text-muted-foreground mt-0.5">Small communities. Big momentum.</p>
       </div>
     }>
-      <div className="space-y-6">
-        {/* ── Global Search + Create ── */}
+      <div className="space-y-4">
+        {/* Search + Create */}
         <div className="flex gap-2">
           <LoopSearchBar
             loops={loops}
@@ -1474,7 +1466,7 @@ export default function LoopsPage() {
             setSearchQuery={setSearchQuery}
             onNavigateToLoop={handleLoopClick}
           />
-          <Button className="gradient-bg border-0" onClick={() => setShowCreateModal(true)}>
+          <Button className="gradient-bg border-0 shrink-0" onClick={() => setShowCreateModal(true)}>
             <Plus className="w-4 h-4 mr-1" />Create
           </Button>
         </div>
@@ -1484,7 +1476,6 @@ export default function LoopsPage() {
             <TabsTrigger value="feed">Feed</TabsTrigger>
             <TabsTrigger value="myloops">My Loops</TabsTrigger>
             <TabsTrigger value="explore">Explore</TabsTrigger>
-            <TabsTrigger value="challenges">Challenges</TabsTrigger>
             <TabsTrigger value="requests" className="relative">
               Requests
               {requests.length > 0 && (
@@ -1670,32 +1661,6 @@ export default function LoopsPage() {
                 ))}
               </div>
             )}
-          </TabsContent>
-
-          {/* ── Challenges Tab ── */}
-          <TabsContent value="challenges" className="space-y-4 mt-6">
-            <div className="grid md:grid-cols-2 gap-4">
-              {challengesData.map((c) => (
-                <Card key={c.name} className="glass border-0 p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <Badge variant="secondary" className="text-xs mb-2">{c.loop}</Badge>
-                      <h3 className="font-semibold">{c.name}</h3>
-                      <p className="text-xs text-muted-foreground mt-0.5">{c.goal}</p>
-                    </div>
-                    <Target className="w-5 h-5" style={{ color: c.color }} />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Group progress</span>
-                      <span className="font-semibold">{c.progress}%</span>
-                    </div>
-                    <Progress value={c.progress} />
-                    <div className="text-xs text-muted-foreground">{c.participants} participants</div>
-                  </div>
-                </Card>
-              ))}
-            </div>
           </TabsContent>
 
           {/* ── Requests Tab ── */}

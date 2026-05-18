@@ -136,16 +136,6 @@ function NotificationBell() {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
-  const handleMarkRead = async (id: string | number) => {
-    try {
-      const token = localStorage.getItem("access_token");
-      await fetch(`http://127.0.0.1:8000/api/notifications/${id}/read/`, {
-        method: "POST", headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch { /* backend not ready */ }
-    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
-  };
-
   return (
     <>
       <button
@@ -385,97 +375,6 @@ function ProfileDropdown({
   );
 }
 
-// ─── Top Bar Profile Menu ─────────────────────────────────────────────────────
-
-function TopBarProfileMenu({
-  displayName,
-  initials,
-  isPremium,
-  profilePicUrl,
-  onLogout,
-  router,
-}: {
-  displayName: string;
-  initials: string;
-  isPremium: boolean | null;
-  profilePicUrl?: string | null;
-  onLogout: () => void;
-  router: ReturnType<typeof useRouter>;
-}) {
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    function handleOutside(e: MouseEvent) {
-      if (
-        menuRef.current && !menuRef.current.contains(e.target as Node) &&
-        buttonRef.current && !buttonRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
-  }, []);
-
-  return (
-    <div className="relative">
-      <button
-        ref={buttonRef}
-        onClick={() => setOpen((p) => !p)}
-        className="w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm overflow-hidden flex-shrink-0 ring-2 ring-background hover:ring-primary/30 transition-all"
-      >
-        {profilePicUrl
-          ? <img src={profilePicUrl} alt={displayName} className="w-full h-full object-cover" />
-          : initials}
-      </button>
-      {open && (
-        <div
-          ref={menuRef}
-          className="absolute right-0 top-full mt-2 w-52 rounded-2xl shadow-2xl z-50 overflow-hidden"
-          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
-        >
-          <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm flex-shrink-0 overflow-hidden">
-              {profilePicUrl
-                ? <img src={profilePicUrl} alt={displayName} className="w-full h-full object-cover" />
-                : initials}
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold truncate">{displayName}</p>
-              <p className="text-xs text-muted-foreground">{isPremium ? "Premium" : "Free"}</p>
-            </div>
-          </div>
-          <div className="py-1">
-            <button onClick={() => { setOpen(false); router.push("/profile"); }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent transition-colors text-left">
-              <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-                <User className="w-3.5 h-3.5" />
-              </div>
-              View Profile
-            </button>
-            <button onClick={() => { setOpen(false); router.push("/settings"); }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent transition-colors text-left">
-              <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-                <Settings className="w-3.5 h-3.5" />
-              </div>
-              Settings &amp; privacy
-            </button>
-            <div className="mx-4 my-1 border-t border-border/50" />
-            <button onClick={() => { setOpen(false); onLogout(); }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent transition-colors text-left text-red-500">
-              <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0">
-                <LogOut className="w-3.5 h-3.5 text-red-500" />
-              </div>
-              Log out
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─── App Shell ────────────────────────────────────────────────────────────────
 
@@ -633,13 +532,13 @@ export function AppShell({ children, headerLeft }: { children: React.ReactNode; 
           </div>
         </header>
         {/* Desktop top bar */}
-        <div className="hidden lg:flex sticky top-0 z-20 items-center justify-between gap-2 px-6 py-3 border-b border-border/20 bg-background/60 backdrop-blur-sm">
-          <div>{headerLeft}</div>
-          <div className="flex items-center gap-2">
+        <div className="hidden lg:flex sticky top-0 z-20 items-center justify-between gap-2 px-6 py-4">
+          <div className="flex-1 min-w-0">{headerLeft}</div>
+          <div className="flex items-center gap-2 flex-shrink-0">
             <NotificationBell />
           </div>
         </div>
-        <main className="flex-1 p-4 lg:p-8 max-w-[1400px] w-full mx-auto">{children}</main>
+        <main className="flex-1 px-4 pb-4 pt-2 lg:px-8 lg:pb-8 lg:pt-3 max-w-[1400px] w-full mx-auto">{children}</main>
       </div>
 
       {open && <div onClick={() => setOpen(false)} className="lg:hidden fixed inset-0 bg-foreground/20 z-30" />}
