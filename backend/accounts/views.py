@@ -2312,8 +2312,8 @@ def plan_setup_view(request):
             active_plan = goal.weekly_plans.filter(status='active').first()
             pending_plan = goal.weekly_plans.filter(status='pending_review').first()
 
-            # Auto-recalibrate for premium users every 7 days
-            if profile.is_premium_active and active_plan and not pending_plan:
+            # Auto-recalibrate for premium users every 7 days (only when plan page requests it)
+            if request.query_params.get('recalibrate') == 'true' and profile.is_premium_active and active_plan and not pending_plan:
                 recent_recal = goal.weekly_plans.filter(
                     is_recalibration=True,
                     created_at__gte=timezone.now() - datetime.timedelta(days=7)

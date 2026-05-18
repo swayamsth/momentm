@@ -61,7 +61,7 @@ export default function PlanPage() {
     const t = token();
     const headers = { Authorization: `Bearer ${t}` };
     Promise.all([
-      fetch("http://127.0.0.1:8000/api/plan/", { headers }).then(r => r.json()),
+      fetch("http://127.0.0.1:8000/api/plan/?recalibrate=true", { headers }).then(r => r.json()),
       fetch("http://127.0.0.1:8000/api/nutrition/", { headers }).then(r => r.ok ? r.json() : []),
       fetch("http://127.0.0.1:8000/api/fitness-profile/", { headers }).then(r => r.ok ? r.json() : null),
       fetch("http://127.0.0.1:8000/api/activities/", { headers }).then(r => r.ok ? r.json() : []),

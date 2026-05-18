@@ -8,10 +8,9 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Footprints, Flame, Moon, TrendingUp, Plus, Settings, LogOut, Clock, Dumbbell, Bell, Utensils, Salad,
+  Footprints, Flame, Moon, TrendingUp, Plus, Clock, Dumbbell, Salad, ArrowRight, Utensils,
 } from "lucide-react";
 import {
   AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -51,27 +50,16 @@ interface NutritionLog {
   date: string;
 }
 
-interface Notification {
-  id: string;
-  type: string;
-  message: string;
-  time: string;
-  read: boolean;
-  membership_id?: number;
-  loop_id?: number;
-  plan_id?: number;
-}
 
-function Stat({ icon: Icon, label, value, unit, color, onClick }: any) {
+function Stat({ icon: Icon, label, value, unit, onClick }: any) {
   return (
-    <Card className={cn("glass border-0 p-5", onClick && "cursor-pointer hover:ring-2 hover:ring-primary/30 transition-all")} onClick={onClick}>
-      <div className="flex items-start justify-between mb-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `color-mix(in oklab, ${color} 15%, transparent)` }}>
-          <Icon className="w-5 h-5" style={{ color }} />
-        </div>
+    <Card className={cn("glass border-0 p-5 group", onClick && "cursor-pointer hover:bg-accent/40 transition-colors")} onClick={onClick}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs text-muted-foreground uppercase tracking-widest">{label}</div>
+        {Icon && <Icon className="w-4 h-4 text-muted-foreground/50" />}
       </div>
-      <div className="text-2xl font-semibold tracking-tight">{value}<span className="text-sm font-normal text-muted-foreground ml-1">{unit}</span></div>
-      <div className="text-xs text-muted-foreground mt-1">{label}</div>
+      <div className="text-3xl font-semibold tracking-tight tabular-nums">{value}<span className="text-base font-normal text-muted-foreground ml-1.5">{unit}</span></div>
+      {onClick && <div className="text-[11px] text-muted-foreground/60 mt-2 group-hover:text-primary transition-colors">Tap to log →</div>}
     </Card>
   );
 }
@@ -145,8 +133,6 @@ function Dashboard() {
   const [trendData, setTrendData] = useState<{ day: string; steps: number; calories: number }[]>([]);
   const [sleepLogs, setSleepLogs] = useState<SleepLog[]>([]);
   const [nutritionLogs, setNutritionLogs] = useState<NutritionLog[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [notifOpen, setNotifOpen] = useState(false);
 
   // Activity log dialog
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -177,6 +163,7 @@ function Dashboard() {
   const nutritionCalories = nutritionProtein * 4 + nutritionCarbs * 4 + nutritionFats * 9;
 
   const [weeklyGoal, setWeeklyGoal] = useState(4);
+  const [hasPendingRecalibration, setHasPendingRecalibration] = useState(false);
 
   const buildTrend = (data: ActivityLog[]) => {
     if (data.length === 0) return [];
@@ -189,11 +176,10 @@ function Dashboard() {
 
   const fetchAll = async (token: string) => {
     try {
-      const [actRes, sleepRes, nutritionRes, notifRes, planRes] = await Promise.all([
+      const [actRes, sleepRes, nutritionRes, planRes] = await Promise.all([
         fetch(`${API}/activities/`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API}/sleep/`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API}/nutrition/`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API}/notifications/`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API}/plan/`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (actRes.ok) {
@@ -203,17 +189,11 @@ function Dashboard() {
       }
       if (sleepRes.ok) setSleepLogs(await sleepRes.json());
       if (nutritionRes.ok) setNutritionLogs(await nutritionRes.json());
-      if (notifRes.ok) {
-        const data = await notifRes.json();
-        try {
-          const seen: string[] = JSON.parse(localStorage.getItem('seen_notif_ids') || '[]');
-          setNotifications(data.map((n: Notification) => ({ ...n, read: seen.includes(String(n.id)) })));
-        } catch { setNotifications(data); }
-      }
       if (planRes.ok) {
         const data = await planRes.json();
         const target = data.current_plan?.plan_data?.target_sessions;
         if (target) setWeeklyGoal(target);
+        setHasPendingRecalibration(data.current_plan?.status === 'pending_review');
       }
     } catch {
       console.log("Could not fetch data");
@@ -325,14 +305,6 @@ function Dashboard() {
     finally { setNutritionLoading(false); }
   };
 
-  const handleLogout = () => {
-    const refresh = localStorage.getItem("refresh_token");
-    fetch(`${API}/logout/`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh }) }).catch(() => {});
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    localStorage.removeItem("user");
-    router.push("/");
-  };
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -353,7 +325,6 @@ function Dashboard() {
   const todaySleep = sleepLogs.find(s => s.date === todayStr);
   const todayNutrition = nutritionLogs.find(n => n.date === todayStr);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
   const displayName = user?.first_name || user?.email?.split("@")[0] || "there";
 
   if (!user) return null;
@@ -368,65 +339,6 @@ function Dashboard() {
             <h1 className="text-3xl font-semibold tracking-tight">{getGreeting()}, {displayName} 👋</h1>
           </div>
           <div className="flex items-center gap-2">
-            {/* Settings */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm"><Settings className="w-4 h-4" /></Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={() => router.push("/settings")}>
-                  <Settings className="w-4 h-4 mr-2" /> Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout} className="text-red-500 focus:text-red-500">
-                  <LogOut className="w-4 h-4 mr-2" /> Logout
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Notifications */}
-            <DropdownMenu open={notifOpen} onOpenChange={(open) => {
-              setNotifOpen(open);
-              if (open && notifications.length > 0) {
-                try {
-                  const ids = notifications.map(n => String(n.id));
-                  const existing: string[] = JSON.parse(localStorage.getItem('seen_notif_ids') || '[]');
-                  localStorage.setItem('seen_notif_ids', JSON.stringify([...new Set([...existing, ...ids])]));
-                } catch {}
-                setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-              }
-            }}>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="relative">
-                  <Bell className="w-4 h-4" />
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full gradient-bg text-[10px] text-white flex items-center justify-center">
-                      {unreadCount}
-                    </span>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80 max-h-96 overflow-y-auto">
-                {notifications.length === 0 ? (
-                  <div className="p-4 text-sm text-muted-foreground text-center">No notifications</div>
-                ) : (
-                  notifications.slice(0, 10).map((n) => (
-                    <DropdownMenuItem
-                      key={n.id}
-                      className="flex flex-col items-start gap-0.5 py-3"
-                      onClick={n.type === 'recalibration' ? () => router.push('/plan') : undefined}
-                    >
-                      {n.type === 'recalibration' && (
-                        <span className="text-xs font-semibold text-primary uppercase tracking-wide">Plan update</span>
-                      )}
-                      <span className="text-sm">{n.message}</span>
-                      <span className="text-xs text-muted-foreground">{n.time}</span>
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
             {/* Log Activity */}
             <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); setLogError(""); setSelfie(null); setScreenshot(null); setVerificationResult(null); }}>
               <DialogTrigger asChild>
@@ -494,32 +406,35 @@ function Dashboard() {
           </div>
         </div>
 
+        {/* Recalibration banner */}
+        {hasPendingRecalibration && (
+          <div
+            onClick={() => router.push('/plan')}
+            className="cursor-pointer rounded-2xl px-5 py-4 flex items-center justify-between gap-4 gradient-bg text-primary-foreground hover:opacity-90 transition-opacity shadow-[var(--shadow-elegant)]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="w-2 h-2 rounded-full bg-background animate-pulse shrink-0" />
+              <div>
+                <p className="text-sm font-bold tracking-tight">Your plan has a new update</p>
+                <p className="text-xs opacity-60 mt-0.5">Tap to review and accept or keep your current plan.</p>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 shrink-0 opacity-70" />
+          </div>
+        )}
+
         {/* Stats row 1 — activity stats + weekly workouts */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <Stat icon={Footprints} label="Steps today" value={totalStepsToday.toLocaleString()} unit="steps" color="oklch(0.6 0.22 255)" />
-          <Stat icon={Flame} label="Calories burned" value={totalCaloriesToday.toLocaleString()} unit="kcal" color="oklch(0.62 0.22 25)" />
-          <Stat icon={TrendingUp} label="Streak" value={currentStreak} unit="days" color="oklch(0.7 0.16 155)" />
-          <Stat icon={Dumbbell} label="Workouts this week" value={Math.min(weeklyWorkouts, weeklyGoal)} unit={`/ ${weeklyGoal}`} color="oklch(0.6 0.22 255)" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Stat icon={Footprints} label="Steps today" value={totalStepsToday.toLocaleString()} unit="steps" />
+          <Stat icon={Flame} label="Calories burned" value={totalCaloriesToday.toLocaleString()} unit="kcal" />
+          <Stat icon={TrendingUp} label="Streak" value={currentStreak} unit="days" />
+          <Stat icon={Dumbbell} label="Workouts this week" value={Math.min(weeklyWorkouts, weeklyGoal)} unit={`/ ${weeklyGoal}`} />
         </div>
 
         {/* Stats row 2 — sleep + nutrition (clickable to log) */}
-        <div className="grid grid-cols-2 gap-4">
-          <Stat
-            icon={Moon}
-            label="Sleep last night"
-            value={todaySleep ? todaySleep.hours : "—"}
-            unit="hrs"
-            color="oklch(0.55 0.18 300)"
-            onClick={() => setSleepDialogOpen(true)}
-          />
-          <Stat
-            icon={Utensils}
-            label="Nutrition today"
-            value={todayNutrition ? todayNutrition.calories.toLocaleString() : "—"}
-            unit="kcal"
-            color="oklch(0.75 0.18 85)"
-            onClick={() => setNutritionDialogOpen(true)}
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <Stat icon={Moon} label="Sleep last night" value={todaySleep ? todaySleep.hours : "—"} unit="hrs" onClick={() => setSleepDialogOpen(true)} />
+          <Stat icon={Utensils} label="Nutrition today" value={todayNutrition ? todayNutrition.calories.toLocaleString() : "—"} unit="kcal" onClick={() => setNutritionDialogOpen(true)} />
         </div>
 
         {/* Sleep log dialog */}
